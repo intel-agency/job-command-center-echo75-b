@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/JobCommandCenter.IntegrationTests/JobCommandCenter.IntegrationTests.csproj" />
+    <Project Path="tests/JobCommandCenter.UnitTests/JobCommandCenter.UnitTests.csproj" />
+  </Folder>
+  <Project Path="JobCommandCenter.AppHost/JobCommandCenter.AppHost.csproj" />
+  <Project Path="JobCommandCenter.Data/JobCommandCenter.Data.csproj" />
+  <Project Path="JobCommandCenter.Harvester/JobCommandCenter.Harvester.csproj" />
+  <Project Path="JobCommandCenter.ServiceDefaults/JobCommandCenter.ServiceDefaults.csproj" />
+  <Project Path="JobCommandCenter.Shared/JobCommandCenter.Shared.csproj" />
+  <Project Path="JobCommandCenter.Web/JobCommandCenter.Web.csproj" />
+</Solution>

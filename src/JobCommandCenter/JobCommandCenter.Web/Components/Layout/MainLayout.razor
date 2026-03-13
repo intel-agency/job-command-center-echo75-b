@@ -1,0 +1,21 @@
+﻿@inherits LayoutComponentBase
+
+<MudThemeProvider />
+<MudPopoverProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudText H6 Class="ml-3">Job Command Center</MudText>
+        <MudSpacer />
+        <MudButtonGroup Variant="Variant.Text">
+            <MudButton Href="/" Color="Color.Primary">Dashboard</MudButton>
+            <MudButton Href="/settings" Color="Color.Secondary">Settings</MudButton>
+        </MudButtonGroup>
+    </MudAppBar>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
