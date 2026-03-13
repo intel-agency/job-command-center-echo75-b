@@ -107,6 +107,7 @@ jobs:
             !plan_docs/**
 
       - name: Super-linter
+        if: ${{ contains(toJson(vars), '"RUN_SUPER_LINTER"') }}
         uses: super-linter/super-linter@61abc07d755095a68f4987d1c2c3d1d64408f1f9  # v8.5.0
         env:
           # To report GitHub Actions status checks
