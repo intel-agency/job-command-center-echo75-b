@@ -1,260 +1,113 @@
----
-file: AGENTS.md
-description: Project instructions for coding agents
-scope: repository
----
+# AGENTS.md
 
-<instructions>
-  <purpose>
-    <summary>
-      GitHub Actions-based AI orchestration system. On GitHub events (issues, PR comments, reviews),
-      the `orchestrator-agent` workflow assembles a structured prompt, spins up a devcontainer,
-      and runs `opencode --agent Orchestrator` to delegate work to specialist sub-agents in `.opencode/agents/`.
-    </summary>
-  </purpose>
+## Project Overview
 
-  <template_usage>
-    <summary>
-      This repository is a **GitHub template repo** (`intel-agency/job-command-center-echo75-b`).
-      New project repositories are created from it using automation scripts in the
-      `nam20485/workflow-launch2` repo. The scripts clone this template, seed plan docs,
-      replace template placeholders, and push — producing a ready-to-go AI-orchestrated repo.
-    </summary>
+**Job Command Center** is a local-first LinkedIn job automation platform that attaches to an existing Chrome session via Chrome DevTools Protocol (CDP). It prioritizes account safety by operating within an authenticated browser context rather than launching a fresh bot instance.
 
-    <template-clone-instances>
-      Once the template has been cloned into a new instance, this file must be updated to match the new repo's specifics (e.g., name, links, instructions). 
-    </template-clone-instances>
+**Key Principle**: The Harvester must run as a **host process** (not containerized) to access `localhost:9222`.
 
-    <creation_workflow>
-      <step>1. Run `./scripts/create-repo-from-slug.ps1 -Slug &lt;project-slug&gt; -Yes` from the `workflow-launch2` repo.</step>
-      <step>2. That delegates to `./scripts/create-repo-with-plan-docs.ps1` which:
-        - Creates a new GitHub repo from this template via `gh repo create --template intel-agency/job-command-center-echo75-b`
-        - Generates a random suffix for the repo name (e.g., `project-slug-bravo84`)
-        - Creates repo secrets (`GEMINI_API_KEY`) and variables (`VERSION_PREFIX`)
-        - Clones the new repo locally
-        - Copies plan docs from `./plan_docs/&lt;slug&gt;/` into the clone's `plan_docs/` directory
-        - Replaces all template placeholders (`job-command-center-echo75-b` → new repo name, `intel-agency` → new owner)
-        - Commits and pushes the seeded repo
-      </step>
-      <step>3. On push, the clone's `validate` workflow runs CI (lint, scan, tests, devcontainer build) and the `publish-docker` workflow builds and pushes the base Docker image to GHCR.</step>
-      <step>4. On successful `publish-docker` completion, the `prebuild-devcontainer` workflow is triggered (via `workflow_run`) to build and push the prebuilt devcontainer image. Together, `publish-docker` → `prebuild-devcontainer` form the devcontainer prebuild caching pipeline that the `orchestrator-agent` workflow relies on to quickly spin up devcontainers.</step>
-    </creation_workflow>
+## Setup Commands
 
-    <template_design_constraints>
-      <rule>Template placeholders (`job-command-center-echo75-b`, `intel-agency`) in file contents and paths are replaced by the creation script. Keep them consistent.</rule>
-      <rule>The `validate` workflow must tolerate fresh clones where no prebuilt GHCR devcontainer image exists yet (fallback build from Dockerfile + image aliasing).</rule>
-      <rule>The `plan_docs/` directory contains external-generated documents seeded at clone time. Exclude it from strict linting (markdown lint, etc.).</rule>
-      <rule>The consumer `.devcontainer/devcontainer.json` references a prebuilt GHCR image. On fresh clones the image won't exist until `publish-docker` and `prebuild-devcontainer` workflows complete their first run.</rule>
-    </template_design_constraints>
+```bash
+# Install dependencies
+cd src/JobCommandCenter && dotnet restore
 
-    <automation_scripts>
-      <entry><repo>nam20485/workflow-launch2</repo><path>scripts/create-repo-from-slug.ps1</path><description>Entry point — takes a slug, resolves plan docs dir, delegates to create-repo-with-plan-docs.ps1</description></entry>
-      <entry><repo>nam20485/workflow-launch2</repo><path>scripts/create-repo-with-plan-docs.ps1</path><description>Full pipeline: repo create, clone, seed docs, placeholder replace, commit, push</description></entry>
-    </automation_scripts>
-  </template_usage>
+# Build
+dotnet build
 
-  <tech_stack>
-    <item>opencode CLI — agent runtime (`opencode --model zai-coding-plan/glm-5 --agent Orchestrator`)</item>
-    <item>ZhipuAI GLM models via `ZHIPU_API_KEY`</item>
-    <item>GitHub Actions + devcontainers/ci — workflow trigger, runner, reproducible container</item>
-    <item>.NET SDK 10 + Aspire + Avalonia templates, Bun, uv (all in devcontainer)</item>
-    <item>MCP servers: `@modelcontextprotocol/server-sequential-thinking`, `@modelcontextprotocol/server-memory`</item>
-  </tech_stack>
+# Run tests
+dotnet test
 
-  <repository_map>
-    <!-- Workflows -->
-    <entry><path>.github/workflows/orchestrator-agent.yml</path><description>Primary workflow — assembles prompt, logs into GHCR, runs opencode in devcontainer</description></entry>
-    <entry><path>.github/workflows/prompts/orchestrator-agent-prompt.md</path><description>Prompt template with `__EVENT_DATA__` placeholder (sed-substituted at runtime)</description></entry>
-    <entry><path>.github/workflows/publish-docker.yml</path><description>Builds Dockerfile, pushes to GHCR with branch-latest and branch-&lt;VERSION_PREFIX.run_number&gt; tags</description></entry>
-    <entry><path>.github/workflows/prebuild-devcontainer.yml</path><description>Layers devcontainer Features on published Docker image (triggered by workflow_run)</description></entry>
-    <!-- Agent definitions -->
-    <entry><path>.opencode/agents/orchestrator.md</path><description>Orchestrator — coordinates specialists, never writes code directly</description></entry>
-    <entry><path>.opencode/agents/</path><description>All specialist agents (developer, code-reviewer, planner, devops-engineer, github-expert, etc.)</description></entry>
-    <entry><path>.opencode/commands/</path><description>Reusable command prompts (orchestrate-new-project, grind-pr-reviews, fix-failing-workflows, etc.)</description></entry>
-    <entry><path>.opencode/opencode.json</path><description>opencode config — MCP server definitions</description></entry>
-    <!-- Devcontainer -->
-    <entry><path>.github/.devcontainer/Dockerfile</path><description>Devcontainer image — .NET SDK, Bun, uv, opencode CLI (build context for publish-docker)</description></entry>
-    <entry><path>.github/.devcontainer/devcontainer.json</path><description>Build-time devcontainer config (Dockerfile + Features: node, python, gh CLI)</description></entry>
-    <entry><path>.devcontainer/devcontainer.json</path><description>Consumer devcontainer — pulls prebuilt GHCR image, no local build</description></entry>
-    <!-- Tests -->
-    <entry><path>test/</path><description>Shell-based tests: devcontainer build, tool availability, prompt assembly</description></entry>
-    <entry><path>test/fixtures/</path><description>Sample webhook payloads for local testing</description></entry>
-    <!-- Remote instructions -->
-    <entry><path>local_ai_instruction_modules/</path><description>Local instruction modules (development rules, workflows, delegation, terminal commands)</description></entry>
-  </repository_map>
+# Run the application (starts all services via Aspire)
+dotnet run --project JobCommandCenter.AppHost
+```
 
-  <instruction_source>
-    <repository>
-      <name>nam20485/agent-instructions</name>
-      <branch>main</branch>
-    </repository>
-    <guidance>
-      Remote instructions are the single source of truth. Fetch from raw URLs:
-      replace `github.com/` with `raw.githubusercontent.com/` and remove `blob/`.
-      Core instructions: `https://raw.githubusercontent.com/nam20485/agent-instructions/main/ai_instruction_modules/ai-core-instructions.md`
-    </guidance>
-    <modules>
-      <module type="core" required="true" link="https://github.com/nam20485/agent-instructions/blob/main/ai_instruction_modules/ai-core-instructions.md">Core Instructions</module>
-      <module type="local" required="true" path="local_ai_instruction_modules">Local AI Instructions</module>
-      <module type="local" required="true" path="local_ai_instruction_modules/ai-dynamic-workflows.md">Dynamic Workflow Orchestration</module>
-      <module type="local" required="true" path="local_ai_instruction_modules/ai-workflow-assignments.md">Workflow Assignments</module>
-      <module type="local" required="true" path="local_ai_instruction_modules/ai-development-instructions.md">Development Instructions</module>
-      <module type="optional" path="local_ai_instruction_modules/ai-terminal-commands.md">Terminal Commands</module>
-    </modules>
-  </instruction_source>
+**Prerequisite**: Start Chrome with remote debugging before running the app:
 
-  <environment_setup>
-    <secrets>
-      <item>`ZHIPU_API_KEY` — ZhipuAI model access; set in repo Settings → Secrets.</item>
-      <item>`KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY` — Kimi (Moonshot) model access; set in repo Settings → Secrets.</item>
-      <item>`GITHUB_TOKEN` — provided automatically by Actions.</item>
-    </secrets>
-    <devcontainer_cache>
-      Image at `ghcr.io/${{ github.repository }}/devcontainer`. `publish-docker.yml` builds the raw Dockerfile;
-      `prebuild-devcontainer.yml` layers Features. Login via `docker/login-action` with `GITHUB_TOKEN`.
-      Set repo variable `VERSION_PREFIX` (e.g., `1.0`) for versioned tags emitted by both image publishing workflows.
-    </devcontainer_cache>
-  </environment_setup>
+```bash
+# macOS
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
 
-  <testing>
-    <guidance>Tests are shell scripts in `test/`. Run directly with `bash`.</guidance>
-    <commands>
-      <command>All tests: `bash test/test-devcontainer-build.sh && bash test/test-devcontainer-tools.sh && bash test/test-prompt-assembly.sh`</command>
-      <command>Prompt changes: `bash test/test-prompt-assembly.sh`</command>
-      <command>Dockerfile changes: `bash test/test-devcontainer-tools.sh`</command>
-    </commands>
-    <guidance>Add new fixture payloads to `test/fixtures/` when testing new event types.</guidance>
-  </testing>
+# Linux
+google-chrome --remote-debugging-port=9222
 
-  <coding_conventions>
-    <rule>Keep changes minimal and targeted.</rule>
-    <rule>Do not hardcode secrets/tokens.</rule>
-    <rule>Preserve the `__EVENT_DATA__` placeholder in `orchestrator-agent-prompt.md`.</rule>
-    <rule>Keep orchestrator delegation-depth ≤2 and "never write code directly" constraint.</rule>
-    <rule>Pin action versions by SHA in workflow files.</rule>
-    <rule>Never add duplicate top-level `name:`, `on:`, or `jobs:` keys in workflow YAML.</rule>
-    <rule>`.opencode/` is checked out by `actions/checkout`; do not COPY it in the Dockerfile.</rule>
-    <rule>Dockerfile lives at `.github/.devcontainer/Dockerfile`. Consumer devcontainer uses `"image:"` — no local build.</rule>
-  </coding_conventions>
+# Windows
+chrome.exe --remote-debugging-port=9222
+```
 
-  <agent_specific_guardrails>
-    <rule>The Orchestrator agent delegates to specialists via the `task` tool — never writes code directly.</rule>
-    <rule>Prompt assembly pipeline:
-      1. Read template from `.github/workflows/prompts/orchestrator-agent-prompt.md`.
-      2. Prepend structured event context (event name, action, actor, repo, ref, SHA).
-      3. Append raw event JSON from `${{ toJson(github.event) }}`.
-      4. Write to `.assembled-orchestrator-prompt.md` and export path via `GITHUB_ENV`.
-    </rule>
-  </agent_specific_guardrails>
+## Project Structure
 
-  <agent_readiness>
-    <verification_protocol>
-      For any non-trivial change (logic, behavior, refactors, dependency updates, config changes, multi-file edits):
-      run verification, fix all failures, re-run until clean. Do not skip or suppress errors.
-    </verification_protocol>
+```
+src/JobCommandCenter/
+├── JobCommandCenter.slnx              # Solution file (slnx format)
+├── JobCommandCenter.AppHost/          # Aspire orchestrator
+│   └── AppHost.cs                     # Configures Postgres + services
+├── JobCommandCenter.ServiceDefaults/  # OpenTelemetry, health checks
+├── JobCommandCenter.Data/             # EF Core DbContext
+│   ├── AppDbContext.cs
+│   └── Entities/JobEntity.cs
+├── JobCommandCenter.Shared/           # Domain models
+│   ├── Models/Job.cs
+│   ├── Models/JobStatus.cs
+│   ├── Models/ScoringConfig.cs
+│   └── Services/ScoringEngine.cs
+├── JobCommandCenter.Harvester/        # Playwright CDP worker
+│   ├── Program.cs
+│   └── Workers/HarvestWorker.cs
+├── JobCommandCenter.Web/              # Blazor Server UI
+│   └── Components/
+└── tests/
+    ├── JobCommandCenter.UnitTests/
+    └── JobCommandCenter.IntegrationTests/
+```
 
-    <verification_commands>
-      <!--
-        | Check                  | Command                                              | When to run              |
-        |========================|======================================================|==========================|
-        | Build + Roslyn analysis| dotnet build {SolutionName}.sln -warnaserror          | Every task               |
-        | Code style (C#)        | dotnet format {SolutionName}.sln --verify-no-changes  | Every task               |
-        | Unit tests             | dotnet test {SolutionName}.sln --no-build             | Every task               |
-        | Polyglot lint          | trunk check                                           | Every task               |
-        | Security scan          | trunk check --all --filter=trufflehog,osv-scanner,... | When explicitly required |
-        | Shell tests            | bash test/test-prompt-assembly.sh                     | Prompt/workflow changes  |
-        | Devcontainer tests     | bash test/test-devcontainer-tools.sh                  | Dockerfile changes       |
-        | Workflow structure     | grep -c "^name:" .github/workflows/*.yml (expect 1)   | Workflow changes         |
-      -->
-      <rule>When adding a CI workflow, add its equivalent local command to this table.</rule>
-    </verification_commands>
+## Code Style
 
-    <post_commit_monitoring>
-      After push, monitor CI until green: `gh run list --limit 5`, `gh run watch <id>`, `gh run view <id> --log-failed`.
-      If any workflow fails, stop feature work, triage, fix, re-verify, push. Do not mark work complete while CI is failing.
-    </post_commit_monitoring>
+- **Language**: C# 12 with .NET 10
+- **Nullable**: Enabled (`#nullable enable`)
+- **Warnings**: Treat as errors in release builds
+- **Naming**: Follow Microsoft C# naming conventions
+- **Async**: Use `async`/`await`; avoid `.Result` or `.Wait()`
 
-    <pipeline_speed_policy>
-      <lane name="fast_readiness" blocking="true">Build, lint/format, unit tests — keep fast for merge readiness.</lane>
-      <lane name="extended_validation" blocking="false">Integration suites, security scans, dependency audits.</lane>
-      <rule>Protect the fast lane from slow steps.</rule>
-    </pipeline_speed_policy>
-  </agent_readiness>
+## Testing Instructions
 
-  <validation_before_handoff>
-    <step>Run applicable shell tests and verification commands.</step>
-    <step>Validate workflow YAML: `grep -c "^name:" .github/workflows/orchestrator-agent.yml  # expect 1`</step>
-    <step>Summarize: what changed, what was validated, remaining risks (secret-dependent paths, image cache misses).</step>
-  </validation_before_handoff>
+- Run all tests: `dotnet test`
+- Run specific test project: `dotnet test tests/JobCommandCenter.UnitTests`
+- Integration tests require Docker (PostgreSQL container)
 
-  <tool_use_instructions>
-    <instruction id="querying_microsoft_documentation">
-      <applyTo>**</applyTo>
-      <title>Querying Microsoft Documentation</title>
-      <tools><tool>microsoft_docs_search</tool><tool>microsoft_docs_fetch</tool><tool>microsoft_code_sample_search</tool></tools>
-      <guidance>
-        Use these MCP tools for Microsoft technologies (C#, ASP.NET Core, .NET, EF, NuGet).
-        Prioritize retrieved info over training data for newer features.
-      </guidance>
-    </instruction>
-    <instruction id="sequential_thinking_default_usage">
-      <applyTo>*</applyTo>
-      <title>Sequential Thinking</title>
-      <tools><tool>sequential_thinking</tool></tools>
-      <guidance>
-        Use for all non-trivial requests. Enables step-by-step analysis with revision, branching, and dynamic adjustment.
-        Use when: breaking down complex problems, planning, architectural decisions, debugging, multi-step context.
-      </guidance>
-    </instruction>
-    <instruction id="memory_default_usage">
-      <applyTo>*</applyTo>
-      <title>Knowledge Graph Memory</title>
-      <tools><tool>create_entities</tool><tool>create_relations</tool><tool>add_observations</tool><tool>delete_entities</tool><tool>delete_observations</tool><tool>delete_relations</tool><tool>read_graph</tool><tool>search_nodes</tool><tool>open_nodes</tool></tools>
-      <guidance>
-        Use for non-trivial requests. Persist user/project context (preferences, configs, decisions, challenges, solutions).
-        Entities have names, types, and observations. Relations connect entities. Search/read at task start; update after significant work.
-      </guidance>
-    </instruction>
-  </tool_use_instructions>
+## Architecture Notes
 
-  <available_tools>
-    <summary>
-      Tools available inside the devcontainer at runtime. Installed via
-      `.github/.devcontainer/Dockerfile` unless noted otherwise.
-    </summary>
+### Service Architecture
+1. **AppHost** - Aspire orchestrator that manages PostgreSQL container and launches services
+2. **Harvester** - Background worker that connects to Chrome via CDP on port 9222
+3. **Web** - Blazor Server dashboard with MudBlazor components
 
-    <runtimes_and_package_managers>
-      <tool name="dotnet" version="10.0.102">`.NET SDK` — build, test, publish C#/F# projects. Includes Avalonia Templates 11.3.12.</tool>
-      <tool name="node" version="24.14.0 LTS">`Node.js` — JavaScript runtime. Required for MCP server packages (`npx`).</tool>
-      <tool name="npm">`npm` — Node package manager (bundled with Node.js).</tool>
-      <tool name="bun" version="1.3.10">`Bun` — fast JavaScript/TypeScript runtime, bundler, and package manager.</tool>
-      <tool name="uv" version="0.10.9">`uv` — Astral Python package manager. Also provides `uvx` for ephemeral tool runs.</tool>
-    </runtimes_and_package_managers>
+### Data Flow
+1. User launches Chrome with `--remote-debugging-port=9222`
+2. Harvester connects via CDP and scrapes LinkedIn job listings
+3. Jobs are persisted to PostgreSQL via EF Core
+4. Web UI displays jobs in real-time via Blazor Server
 
-    <cli_tools>
-      <tool name="gh">`GitHub CLI` — interact with GitHub API (issues, PRs, repos, releases, actions). Authenticated automatically via `GITHUB_TOKEN` env var in CI; use `gh auth login --with-token` otherwise.</tool>
-      <tool name="opencode" version="1.2.24">`opencode CLI` — AI agent runtime. Runs agents defined in `.opencode/agents/` with MCP server support.</tool>
-      <tool name="git">`Git` — version control (system package + devcontainer feature).</tool>
-    </cli_tools>
+### Critical Constraints
+- **Harvester must NOT be containerized** - it needs access to host's `localhost:9222`
+- **No credential handling** - authentication piggybacks on user's Chrome session
+- **Human-mimicry delays** - randomized waits to avoid bot detection
 
-    <github_authentication>
-      <summary>
-        GitHub API access is configured at multiple layers to support both `gh` CLI and MCP GitHub server operations.
-      </summary>
-      <layer name="GITHUB_TOKEN">Provided automatically by GitHub Actions. Passed into the devcontainer via `--remote-env`.</layer>
-      <layer name="GITHUB_PERSONAL_ACCESS_TOKEN">Bridged from `GITHUB_TOKEN` for the `@modelcontextprotocol/server-github` MCP server, which requires this specific env var name. Set in `opencode.json` via the MCP `env` block, in `devcontainer.json` `remoteEnv`, and exported in `run_opencode_prompt.sh`.</layer>
-      <layer name="gh auth login">`run_opencode_prompt.sh` authenticates the `gh` CLI via `echo "$GITHUB_TOKEN" | gh auth login --with-token` before launching opencode.</layer>
-    </github_authentication>
+## PR and Commit Guidelines
 
-    <scripts_directory>
-      <summary>PowerShell helper scripts in `scripts/` for GitHub setup and management tasks.</summary>
-      <script name="scripts/common-auth.ps1">Shared `Initialize-GitHubAuth` function — checks `gh auth status`, authenticates via PAT token (`$env:GITHUB_AUTH_TOKEN`) or interactive login.</script>
-      <script name="scripts/gh-auth.ps1">Extended GitHub auth helper — supports PAT token auth via `--with-token` and interactive fallback.</script>
-      <script name="scripts/import-labels.ps1">Imports labels from `.github/.labels.json` into the repository.</script>
-      <script name="scripts/create-milestones.ps1">Creates project milestones from plan docs.</script>
-      <script name="scripts/test-github-permissions.ps1">Verifies `GITHUB_TOKEN` has required permissions (contents, issues, PRs, packages).</script>
-      <script name="scripts/query.ps1">GraphQL query helper for GitHub API.</script>
-      <script name="scripts/update-remote-indices.ps1">Updates remote instruction module indices.</script>
-    </scripts_directory>
-  </available_tools>
-</instructions>
+- Commit message format: `type(scope): message`
+- Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`
+- PRs should target `main` branch
+- Run `dotnet build` and `dotnet test` before committing
+
+## Common Pitfalls
+
+1. **Chrome not running with debug port**: Harvester will fail to connect. Always start Chrome first.
+2. **Containerized Harvester**: Will fail to reach `localhost:9222`. Must run as host process.
+3. **Missing Playwright browsers**: Run `pwsh bin/Debug/net10.0/playwright.ps1 install` after first build
+
+## CI/CD
+
+- Validation workflow runs on PR
+- Build, test, and lint checks
+- Docker image published to GHCR
