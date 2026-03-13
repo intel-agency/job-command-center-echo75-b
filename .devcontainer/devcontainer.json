@@ -1,6 +1,6 @@
 {
-  "name": "ai-new-workflow-app-template",
-  "image": "ghcr.io/intel-agency/ai-new-workflow-app-template/devcontainer:main-latest",
+  "name": "job-command-center-echo75-b",
+  "image": "ghcr.io/intel-agency/job-command-center-echo75-b/devcontainer:main-latest",
   "containerEnv": {
     "DOTNET_ROOT": "/usr/share/dotnet"
   },
