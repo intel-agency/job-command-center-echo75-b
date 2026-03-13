@@ -23,6 +23,7 @@ dotnet run --project JobCommandCenter.AppHost
 ```
 
 **Prerequisite**: Start Chrome with remote debugging before running the app:
+
 ```bash
 # macOS
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222

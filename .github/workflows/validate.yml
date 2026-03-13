@@ -101,6 +101,7 @@ jobs:
         with:
           globs: |
             **/*.md
+            !debrief-and-document/**
             !.opencode/node_modules/**
             !node_modules/**
             !plan_docs/**
