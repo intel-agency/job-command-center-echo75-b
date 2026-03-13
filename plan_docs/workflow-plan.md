@@ -39,7 +39,7 @@ init-existing-repository
 create-app-plan
   ├─ pre-assignment-begin: gather-context
   ├─ on-assignment-failure: recover-from-error
-  └─ post-assignment-complete: report-progress + workflow post events
+  └─ post-assignment-complete: report-progress
 
 create-project-structure
   └─ post-assignment-complete: validate-assignment-completion → report-progress
