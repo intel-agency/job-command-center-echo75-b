@@ -24,7 +24,7 @@ If no match is found, execute the `(default)` clause if it exists. If no match i
 
 ### Match Clauses
 
- case (type = issues && 
+ case (type = issues &&
         action = labeled &&
         labels contains: "implementation:ready" &&
         title contains: "Complete Implementation (Application Plan)")
@@ -35,7 +35,7 @@ If no match is found, execute the `(default)` clause if it exists. If no match i
 
  case (type = issues &&
         action = labeled &&
-        labels contains: "implementation:ready" && 
+        labels contains: "implementation:ready" &&
         title contains: "Epic")
         {
           - /orchestrate-dynamic-workflow
