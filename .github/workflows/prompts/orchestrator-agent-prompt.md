@@ -22,12 +22,24 @@ If no match is found, execute the `*)` clause if it exists. If no match is found
 
 ### Match Clauses
 
- (type = issues
-  (action = opened:
+ case (type = issues && 
+        action = labeled &&
+        labels contains: "implementation:ready" &&
+        title contains: "Complete Implementation (Application Plan)")
+        {
+          - /orchestrate-dynamic-workflow
+              $workflow_name = create-epic-v2 { $phase = "1", $line_item = "1.1" }
+        }
 
-  (action = edited:
-
-
+ case (type = issues &&
+        action = labeled &&
+        labels contains: "implementation:ready" && 
+        title contains: "Epic")
+        {
+          - /orchestrate-dynamic-workflow
+              <!-- $workflow_name = create-epic-v2 { } -->
+               $workflow_name = implement-epic { $epic = extract_epic_from_title(title) }
+        }
 <!-- Parse this logic tree based on your EVENT_DATA JSON data and then perform the instructions that correspond to the specific event type and action. The `Event Name` field identifies the trigger type. The `Action` field identifies the specific sub-action.
 
 ### `issues` events
