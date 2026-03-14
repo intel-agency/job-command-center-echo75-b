@@ -43,6 +43,12 @@ If no match is found, execute the `(default)` clause if it exists. If no match i
                $workflow_name = implement-epic { $epic = extract_epic_from_title(title) }
         }
 
+case (type= issues &&
+       action = opened &&
+       title contains "orchestrate-dynamic-workflow")
+       {
+          - read and parse the issue body for instructions to determine which workflow to trigger and with what parameters, then trigger that workflow with those parameters.
+       }
 
 case (default)
       {
