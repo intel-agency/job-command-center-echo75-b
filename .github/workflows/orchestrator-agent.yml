@@ -2,15 +2,15 @@ name: orchestrator-agent
 
 on:
   issues:
-    types: [opened, edited, reopened, assigned]
-  issue_comment:
-    types: [created, edited]
-  pull_request_review_comment:
-    types: [created, edited]
-  pull_request_review:
-    types: [submitted, edited]
+    types: [opened, edited, reopened, assigned, labeled]
+  # issue_comment:
+  #   types: [created, edited]
+  # pull_request_review_comment:
+  #     types: [created, edited]
+  # pull_request_review:
+  #   types: [submitted, edited]
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]  
   workflow_dispatch:
     inputs:
       prompt:
