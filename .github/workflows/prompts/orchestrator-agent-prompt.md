@@ -21,7 +21,7 @@ Find a clause with all mentioned values matching the current data passed in.
 - Clause values are references to members in the event data. For example, if the clause mentions `type: opened`, it is referring to the `action` field in the event data which has a value of `opened`.
 
 - If no match is found, execute the `(default)` clause if it exists.
-- If no match is found and no `(default)` clause exists, do nothing.
+- If no match is found and no `(default)` clause exists, do nothing and execute the ##Final section.
 
 ### Test and Debug Modes
 
@@ -32,6 +32,7 @@ If the issue or comment or other entity that triggered this workflow contains th
 
 - `debug`:
   - Before executing the logic in any matching clause, print a message "DEBUG MODE:" and increase the level of your logging and output of internal state information, including the content of relevant variables and the reasoning behind your decisions. Add any arguments or instruct any commands that you execute to increase their tracing and debug output levels as well. Then proceed to execute the logic as normal.
+  - **As always, be careful to not print any secrets, API keys, passwords, or other sensitive information in the increased output in debug mode.**
 
 ## Match Clause Cases
 
@@ -69,7 +70,6 @@ case (default)
         - print the contents of your EVENT_DATA with a message stating no match was found so execution fell through to the 
         `(default)` clause case.
       }
-
 
 ## Final
 
