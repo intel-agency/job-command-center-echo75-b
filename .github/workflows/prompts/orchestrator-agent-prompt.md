@@ -48,6 +48,9 @@ case (type= issues &&
        title contains "orchestrate-dynamic-workflow")
        {
           - read and parse the issue body for instructions to determine which workflow to trigger and with what parameters, then trigger that workflow with those parameters.
+          - after the workflow completes, comment on the issue with a summary of the workflow's execution and its results.
+            - if the workflow succeeds, close the issue with a short comment indicating success.
+            - if the workflow fails, leave the issue open and comment with details about the failure and potential next steps and details that would aid in tracing and debugging the failure.
        }
 
 case (default)
