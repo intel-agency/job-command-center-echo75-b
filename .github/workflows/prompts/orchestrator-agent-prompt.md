@@ -22,6 +22,16 @@ Find a clause with all mentioned values matching the current data passed in.
 
 If no match is found, execute the `(default)` clause if it exists. If no match is found and no `(default)` clause exists, do nothing.
 
+## Test and Debug Modes
+
+If the issue or comment or other entity that triggered this workflow contains the label or keyword `test` or `debug` also perform the following additional steps:
+
+- `test`:
+  - Before executing the logic in any matching clause, print a message "TEST MODE: This is a test. The following logic would be executed:" followed by the logic that would be executed based on the matching clause. Then skip actually excuting any logic and jump to the ##Final section.
+  
+- `debug`:
+  - Before executing the logic in any matching clause, print a message "DEBUG MODE:` and increase the level of your logging and output of internal state information, including the content of relevant variables and the reasoning behind your decisions.
+
 ### Match Clauses
 
  case (type = issues &&
