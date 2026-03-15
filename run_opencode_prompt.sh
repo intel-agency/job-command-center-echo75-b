@@ -55,12 +55,17 @@ fi
 # Authenticate GitHub CLI and set MCP-compatible token
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
     export GITHUB_PERSONAL_ACCESS_TOKEN="${GITHUB_TOKEN}"
+    # GH_TOKEN is read automatically by gh CLI — setting it is sufficient for auth.
+    # Do NOT call `gh auth login --with-token` while GH_TOKEN is set; gh rejects
+    # credential storage when the env var is already providing authentication.
     export GH_TOKEN="${GITHUB_TOKEN}"
-    if echo "${GITHUB_TOKEN}" | gh auth login --with-token 2>&1; then
-        echo "gh CLI authenticated successfully"
-        gh auth status
+    echo "gh CLI authenticated via GH_TOKEN environment variable"
+    # Validate token is accepted by the API and print the authenticated identity
+    if gh_user=$(gh api user --jq '.login' 2>&1); then
+        echo "gh CLI authentication verified — logged in as: ${gh_user}"
     else
-        echo "::warning::gh auth login failed — gh CLI commands may not work"
+        echo "::error::gh CLI token validation failed: ${gh_user}" >&2
+        exit 1
     fi
 else
     echo "::warning::GITHUB_TOKEN is not set — gh CLI will not be authenticated"

@@ -52,8 +52,13 @@ case (type= issues &&
 
 case (default)
       {
-        - print your EVENT_DATA with a message stating execution fell through to the `(default)` case and then say goodbye! and finish execution.
+        - print your EVENT_DATA with a message stating execution fell through to the `(default)`.
       }
+
+
+### Final
+
+- Say goodbye! and finish execution.
 
 <!-- Parse this logic tree based on your EVENT_DATA JSON data and then perform the instructions that correspond to the specific event type and action. The `Event Name` field identifies the trigger type. The `Action` field identifies the specific sub-action.
 
