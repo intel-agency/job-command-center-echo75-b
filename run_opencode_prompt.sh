@@ -77,34 +77,35 @@ export GITHUB_PERSONAL_ACCESS_TOKEN="${_active_token}"
 
 # Validate the token is accepted by the API and check required scopes.
 # --include surfaces response headers; X-OAuth-Scopes lists granted scopes.
-# Note: GITHUB_TOKEN (Actions built-in) returns an empty X-OAuth-Scopes header
-# because it uses fine-grained permissions, not classic OAuth scopes — skip scope
-# checking in that case and rely on the workflow permissions: block instead.
-_api_response=$(gh api rate_limit --include 2>&1)
-if [[ $? -ne 0 ]]; then
-    echo "::error::gh CLI token validation failed: ${_api_response}" >&2
+# Use ||true to prevent set -e from exiting before we can capture/report the error.
+_api_response=$(gh api rate_limit --include 2>&1) || true
+if ! echo "${_api_response}" | grep -q '^HTTP'; then
+    echo "::error::gh CLI token validation failed — unexpected response:" >&2
+    echo "${_api_response}" >&2
     exit 1
 fi
 echo "gh CLI token validation succeeded"
 
 if [[ -n "${GH_ORCHESTRATION_AGENT_TOKEN:-}" ]]; then
-    _granted_scopes=$(echo "${_api_response}" | grep -i '^X-OAuth-Scopes:' | sed 's/^X-OAuth-Scopes:[[:space:]]*//' | tr -d '\r')
+    _granted_scopes=$(echo "${_api_response}" | grep -i '^X-OAuth-Scopes:' | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')
     echo "Granted OAuth scopes: ${_granted_scopes:-<none>}"
+
+    # Tokenize the comma-space delimited scope string into an array.
+    IFS=', ' read -ra _scope_tokens <<< "${_granted_scopes}"
 
     _required_scopes=("repo" "workflow" "project" "read:org")
     _missing=()
     for _scope in "${_required_scopes[@]}"; do
-        # A scope is satisfied if it appears directly or is covered by a broader scope
-        # (e.g. 'repo' covers 'public_repo'; checked as exact word match).
-        if ! echo ",${_granted_scopes}," | grep -qE "(^|,)[[:space:]]*${_scope}[[:space:]]*(,|$)"; then
-            _missing+=("${_scope}")
-        fi
+        _found=false
+        for _token in "${_scope_tokens[@]}"; do
+            [[ "${_token}" == "${_scope}" ]] && { _found=true; break; }
+        done
+        [[ "${_found}" == false ]] && _missing+=("${_scope}")
     done
 
     if [[ ${#_missing[@]} -gt 0 ]]; then
         echo "::error::GH_ORCHESTRATION_AGENT_TOKEN is missing required scopes: ${_missing[*]}" >&2
-        echo "::error::Required: ${_required_scopes[*]}" >&2
-        echo "::error::Granted:  ${_granted_scopes:-<none>}" >&2
+        echo "::error::Required: ${_required_scopes[*]}  |  Granted: ${_granted_scopes}" >&2
         exit 1
     fi
     echo "All required scopes verified: ${_required_scopes[*]}"
