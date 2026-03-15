@@ -53,6 +53,28 @@ If the issue or comment or other entity that triggered this workflow contains th
           - /orchestrate-dynamic-workflow
               <!-- $workflow_name = create-epic-v2 { } -->
                $workflow_name = implement-epic { $epic = extract_epic_from_title(title) }
+
+          - if the dynamic workflow completes successfully, add the "implementation:complete" label to the issue to mark it as complete
+        }
+
+case (type = issues &&
+        action = labeled &&
+        labels contains: "implementation:complete" &&
+        title contains: "Epic")
+        {
+          1. From the completed Epic issue, extract the phase and line_item identifiers
+             (e.g. from the title, body, or labels — typically formatted as "Phase N" / "Task N.M").
+          2. Locate the "Complete Implementation (Application Plan)" issue in this repository.
+             Read its body to obtain the full list of phases and line_items.
+          3. Walk the plan in order. Find the next line_item after the one that was just completed
+             whose Epic does not yet exist or is not labeled "implementation:complete".
+             - If the completed item is the last in its phase, advance to the first line_item
+               of the next phase.
+             - If every line_item in every phase is already complete, skip to ##Final with a
+               summary message — there is nothing left to create.
+          4. Invoke the workflow with the discovered values:
+             - /orchestrate-dynamic-workflow
+                 $workflow_name = create-epic-v2 { $phase = "<next_phase>", $line_item = "<next_line_item>" }
         }
 
 case (type = issues &&

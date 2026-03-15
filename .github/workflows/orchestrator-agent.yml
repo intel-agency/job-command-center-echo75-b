@@ -3,8 +3,8 @@ name: orchestrator-agent
 on:
   issues:
     types: [opened, edited, reopened, assigned, labeled]
-  # issue_comment:
-  #   types: [created, edited]
+  issue_comment:
+     types: [created, edited]
   # pull_request_review_comment:
   #     types: [created, edited]
   # pull_request_review:
