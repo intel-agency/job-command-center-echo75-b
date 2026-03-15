@@ -1,15 +1,5 @@
 <Project Sdk="Aspire.AppHost.Sdk/13.1.2">
 
-  <ItemGroup>
-    <ProjectReference Include="..\JobCommandCenter.Web\JobCommandCenter.Web.csproj" />
-    <ProjectReference Include="..\JobCommandCenter.Harvester\JobCommandCenter.Harvester.csproj" />
-    <ProjectReference Include="..\JobCommandCenter.ServiceDefaults\JobCommandCenter.ServiceDefaults.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.1.2" />
-  </ItemGroup>
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -17,5 +7,15 @@
     <Nullable>enable</Nullable>
     <UserSecretsId>a4f6a3ac-a381-4582-8c64-9de6433001f3</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JobCommandCenter.Web\JobCommandCenter.Web.csproj" />
+    <ProjectReference Include="..\JobCommandCenter.Harvester\JobCommandCenter.Harvester.csproj" />
+    <ProjectReference Include="..\JobCommandCenter.ServiceDefaults\JobCommandCenter.ServiceDefaults.csproj" IsAspireProjectResource="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
 
 </Project>

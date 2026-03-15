@@ -1,0 +1,31 @@
+<Project>
+  <!-- Common Properties -->
+  <PropertyGroup>
+    <!-- Target Framework - override in individual projects if needed -->
+    <TargetFramework>net10.0</TargetFramework>
+    
+    <!-- Language Features -->
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    
+    <!-- Build Settings -->
+    <TreatWarningsAsErrors Condition="'$(Configuration)' == 'Release'">true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AnalysisLevel>latest</AnalysisLevel>
+    
+    <!-- NuGet Settings -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
+    
+    <!-- Source Control -->
+    <RepositoryUrl>https://github.com/echo75/job-command-center</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!-- Code Analysis Settings -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CA1707;CA1054;CA1056</NoWarn>
+  </PropertyGroup>
+</Project>
