@@ -1,12 +1,20 @@
 using JobCommandCenter.Shared.Models;
-using Microsoft.EntityFrameworkCore;
 
 namespace JobCommandCenter.Data.Entities;
 
 /// <summary>
 /// Entity representation of a job for EF Core persistence.
 /// </summary>
-[Index(nameof(LinkedInJobId), IsUnique = true)]
+/// <remarks>
+/// <para>
+/// This entity is configured via <see cref="JobEntityConfiguration"/> which defines
+/// column types, indexes, and constraints for PostgreSQL storage.
+/// </para>
+/// <para>
+/// Use <see cref="FromModel"/> to create an entity from a domain model,
+/// and <see cref="ToModel"/> to convert back to a domain model.
+/// </para>
+/// </remarks>
 public class JobEntity
 {
     /// <summary>

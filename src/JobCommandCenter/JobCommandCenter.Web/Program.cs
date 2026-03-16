@@ -2,7 +2,6 @@ using JobCommandCenter.Data;
 using JobCommandCenter.Shared.Models;
 using JobCommandCenter.Shared.Services;
 using JobCommandCenter.Web.Components;
-using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,9 +9,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Add service defaults (OpenTelemetry, health checks, etc.)
 builder.AddServiceDefaults();
 
-// Add database context
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("jobdb")));
+// Add database context with connection pooling and retry logic
+var connectionString = builder.Configuration.GetConnectionString("jobdb")
+    ?? throw new InvalidOperationException("Connection string 'jobdb' not found.");
+builder.Services.AddJobCommandCenterData(connectionString);
 
 // Add scoring engine with default configuration
 builder.Services.AddSingleton(new ScoringConfig
