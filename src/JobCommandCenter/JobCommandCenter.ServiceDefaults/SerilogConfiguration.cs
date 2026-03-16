@@ -9,8 +9,77 @@ using Serilog.Sinks.SystemConsole.Themes;
 namespace Microsoft.Extensions.Hosting;
 
 /// <summary>
-/// Provides Serilog configuration helpers for bootstrap logging and environment-aware setup.
+/// Provides Serilog configuration methods for bootstrapping and runtime configuration.
+/// This class implements structured logging best practices with automatic enrichment
+/// for distributed tracing, job context, and service identity.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Structured Logging Conventions:</strong>
+/// </para>
+/// <list type="bullet">
+///   <item><description>Use PascalCase for property names (e.g., <c>JobId</c>, <c>CorrelationId</c>)</description></item>
+///   <item><description>Use message templates with named placeholders: <c>"Processing job {JobId}"</c></description></item>
+///   <item><description>Avoid string interpolation in log messages - use structured properties instead</description></item>
+///   <item><description>Include context via enrichers rather than manual properties</description></item>
+/// </list>
+/// <para>
+/// <strong>Usage Example:</strong>
+/// </para>
+/// <code>
+/// // In Program.cs - Bootstrap logger for early startup errors
+/// Log.Logger = SerilogConfiguration.CreateBootstrapLogger();
+/// 
+/// try
+/// {
+///     var builder = WebApplication.CreateBuilder(args);
+///     
+///     // Configure full Serilog from appsettings.json
+///     builder.Services.AddSerilog((services, loggerConfiguration) =>
+///     {
+///         var config = services.GetRequiredService&lt;IConfiguration&gt;();
+///         var logger = SerilogConfiguration.ConfigureSerilog(
+///             config, 
+///             applicationName: "MyService",
+///             environmentName: builder.Environment.EnvironmentName);
+///         loggerConfiguration.Serilog(logger);
+///     });
+///     
+///     var app = builder.Build();
+///     app.Run();
+/// }
+/// catch (Exception ex)
+/// {
+///     Log.Fatal(ex, "Application terminated unexpectedly");
+/// }
+/// finally
+/// {
+///     Log.CloseAndFlush();
+/// }
+/// </code>
+/// </remarks>
+/// <example>
+/// <para>Good structured logging pattern:</para>
+/// <code>
+/// // GOOD: Structured logging with named properties
+/// _logger.LogInformation("Processing job {JobId} with status {Status}", jobId, status);
+/// 
+/// // GOOD: Using scope for context enrichment
+/// using var scope = _logger.BeginScope(new Dictionary&lt;string, object&gt;
+/// {
+///     ["CorrelationId"] = correlationId
+/// });
+/// _logger.LogInformation("Starting harvest operation");
+/// </code>
+/// <para>Bad logging pattern (avoid):</para>
+/// <code>
+/// // BAD: String interpolation loses structure
+/// _logger.LogInformation($"Processing job {jobId}");
+/// 
+/// // BAD: Positional parameters without names
+/// _logger.LogInformation("Processing job {0}", jobId);
+/// </code>
+/// </example>
 public static class SerilogConfiguration
 {
     private const string DefaultOutputTemplate = "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}";

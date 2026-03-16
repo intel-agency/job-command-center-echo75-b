@@ -10,6 +10,72 @@ namespace Microsoft.Extensions.Hosting;
 /// Provides JobId, CorrelationId, and OperationId properties for log correlation and debugging.
 /// Also enriches with HTTP request context when available.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This enricher uses <see cref="AsyncLocal{T}"/> for context propagation across async boundaries,
+/// ensuring that correlation IDs and job context flow correctly through the call chain.
+/// </para>
+/// <para>
+/// <strong>Enriched Properties:</strong>
+/// </para>
+/// <list type="bullet">
+///   <item><description><c>JobId</c> - The current job identifier from async context</description></item>
+///   <item><description><c>CorrelationId</c> - Correlation ID for request tracing</description></item>
+///   <item><description><c>OperationId</c> - Unique identifier for the current operation</description></item>
+///   <item><description><c>TraceId</c> - OpenTelemetry trace ID from <see cref="Activity.Current"/></description></item>
+///   <item><description><c>SpanId</c> - OpenTelemetry span ID from <see cref="Activity.Current"/></description></item>
+///   <item><description><c>RequestPath</c> - HTTP request path (when in web context)</description></item>
+///   <item><description><c>HttpMethod</c> - HTTP method (when in web context)</description></item>
+/// </list>
+/// </remarks>
+/// <example>
+/// <para>Using job context scope for automatic enrichment:</para>
+/// <code>
+/// public class JobProcessor
+/// {
+///     private readonly ILogger&lt;JobProcessor&gt; _logger;
+///     
+///     public async Task&lt;JobResult&gt; ProcessJobAsync(Job job)
+///     {
+///         // Create a scope that automatically adds JobId and CorrelationId to all logs
+///         using var scope = JobContextEnricher.BeginJobScope(job.Id, job.CorrelationId);
+///         
+///         _logger.LogInformation("Starting job processing"); // Automatically includes JobId, CorrelationId
+///         
+///         try
+///         {
+///             await DoWorkAsync(job);
+///             _logger.LogInformation("Job completed successfully");
+///             return JobResult.Success();
+///         }
+///         catch (Exception ex)
+///         {
+///             _logger.LogError(ex, "Job processing failed"); // Automatically includes JobId, CorrelationId
+///             throw;
+///         }
+///     }
+/// }
+/// </code>
+/// <para>Using operation scope for tracking nested operations:</para>
+/// <code>
+/// public async Task&lt;IEnumerable&lt;Job&gt;&gt; HarvestJobsAsync()
+/// {
+///     using var opScope = JobContextEnricher.BeginOperationScope();
+///     
+///     _logger.LogInformation("Starting harvest cycle"); // Includes OperationId
+///     
+///     var jobs = await FetchJobsFromLinkedInAsync();
+///     foreach (var job in jobs)
+///     {
+///         // Nested scopes - each job gets its own JobId while maintaining OperationId
+///         using var jobScope = JobContextEnricher.BeginJobScope(job.Id);
+///         _logger.LogInformation("Processing harvested job");
+///     }
+///     
+///     return jobs;
+/// }
+/// </code>
+/// </example>
 public class JobContextEnricher : ILogEventEnricher
 {
     /// <summary>

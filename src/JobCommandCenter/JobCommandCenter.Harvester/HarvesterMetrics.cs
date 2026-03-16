@@ -8,6 +8,127 @@ namespace JobCommandCenter.Harvester;
 /// Custom metrics for Harvester operations.
 /// Provides counters, histograms, and gauges for monitoring job harvesting activities.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This class implements OpenTelemetry-compatible metrics using <see cref="System.Diagnostics.Metrics"/>.
+/// Metrics are automatically exported when OpenTelemetry is configured in the application.
+/// </para>
+/// <para>
+/// <strong>Available Metrics:</strong>
+/// </para>
+/// <list type="table">
+///   <listheader>
+///     <term>Metric Name</term>
+///     <description>Description</description>
+///   </listheader>
+///   <item>
+///     <term>harvester.jobs_harvested</term>
+///     <description>Counter - Total jobs harvested from LinkedIn</description>
+///   </item>
+///   <item>
+///     <term>harvester.harvest_duration</term>
+///     <description>Histogram - Duration of harvest operations in ms</description>
+///   </item>
+///   <item>
+///     <term>harvester.active_connections</term>
+///     <description>Gauge - Active Chrome CDP connections</description>
+///   </item>
+///   <item>
+///     <term>harvester.errors</term>
+///     <description>Counter - Total errors encountered</description>
+///   </item>
+///   <item>
+///     <term>harvester.page_load_duration</term>
+///     <description>Histogram - Page load duration in ms</description>
+///   </item>
+///   <item>
+///     <term>harvester.pages_scraped</term>
+///     <description>Counter - Total pages scraped</description>
+///   </item>
+/// </list>
+/// </remarks>
+/// <example>
+/// <para>Registering HarvesterMetrics with dependency injection:</para>
+/// <code>
+/// // In Program.cs or service configuration
+/// services.AddHarvesterMetrics();
+/// </code>
+/// <para>Using metrics in a worker service:</para>
+/// <code>
+/// public class HarvestWorker : BackgroundService
+/// {
+///     private readonly HarvesterMetrics _metrics;
+///     private readonly ILogger&lt;HarvestWorker&gt; _logger;
+///     
+///     public HarvestWorker(HarvesterMetrics metrics, ILogger&lt;HarvestWorker&gt; logger)
+///     {
+///         _metrics = metrics;
+///         _logger = logger;
+///     }
+///     
+///     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+///     {
+///         while (!stoppingToken.IsCancellationRequested)
+///         {
+///             var stopwatch = Stopwatch.StartNew();
+///             
+///             // Track active connection using scope
+///             using var connectionScope = _metrics.BeginConnectionScope();
+///             
+///             try
+///             {
+///                 var jobs = await HarvestJobsAsync(stoppingToken);
+///                 
+///                 // Record metrics
+///                 _metrics.RecordJobsHarvested(jobs.Count, source: "search", status: "new");
+///                 _metrics.RecordPagesScraped(1, pageType: "search_results");
+///                 
+///                 stopwatch.Stop();
+///                 _metrics.RecordHarvestDuration(stopwatch.Elapsed, operation: "full_cycle", success: true);
+///                 
+///                 _logger.LogInformation("Harvested {Count} jobs in {Duration}ms", 
+///                     jobs.Count, stopwatch.ElapsedMilliseconds);
+///             }
+///             catch (Exception ex)
+///             {
+///                 stopwatch.Stop();
+///                 _metrics.RecordHarvestDuration(stopwatch.Elapsed, operation: "full_cycle", success: false);
+///                 _metrics.RecordError("harvest_failed", operation: "full_cycle");
+///                 
+///                 _logger.LogError(ex, "Harvest operation failed");
+///             }
+///             
+///             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+///         }
+///     }
+/// }
+/// </code>
+/// <para>Recording page load metrics:</para>
+/// <code>
+/// public async Task&lt;IReadOnlyList&lt;Job&gt;&gt; ScrapePageAsync(string url)
+/// {
+///     var stopwatch = Stopwatch.StartNew();
+///     
+///     try
+///     {
+///         var page = await _browser.NewPageAsync();
+///         await page.GotoAsync(url);
+///         
+///         stopwatch.Stop();
+///         _metrics.RecordPageLoadDuration(stopwatch.Elapsed, pageType: "job_detail", success: true);
+///         
+///         return await ParseJobsAsync(page);
+///     }
+///     catch (TimeoutException)
+///     {
+///         stopwatch.Stop();
+///         _metrics.RecordPageLoadDuration(stopwatch.Elapsed, pageType: "job_detail", success: false);
+///         _metrics.RecordError("timeout", operation: "page_load");
+///         throw;
+///     }
+/// }
+/// </code>
+/// </example>
 public sealed class HarvesterMetrics : IDisposable
 {
     /// <summary>
