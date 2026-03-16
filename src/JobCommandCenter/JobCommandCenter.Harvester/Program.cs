@@ -2,13 +2,13 @@ using JobCommandCenter.Data;
 using JobCommandCenter.Harvester.Workers;
 using JobCommandCenter.Shared.Models;
 using JobCommandCenter.Shared.Services;
-using Microsoft.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// Add database context
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("jobdb")));
+// Add database context with connection pooling and retry logic
+var connectionString = builder.Configuration.GetConnectionString("jobdb")
+    ?? throw new InvalidOperationException("Connection string 'jobdb' not found.");
+builder.Services.AddJobCommandCenterData(connectionString);
 
 // Add scoring engine with default configuration
 builder.Services.AddSingleton(new ScoringConfig
