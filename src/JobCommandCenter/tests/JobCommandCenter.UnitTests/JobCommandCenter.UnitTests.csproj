@@ -22,7 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="System.ComponentModel" />
+    <Using Include="System.ComponentModel.DataAnnotations" />
+    <Using Include="FluentAssertions" />
     <Using Include="Xunit" />
+    <Using Include="JobCommandCenter.Shared.Models" />
   </ItemGroup>
 
 </Project>
