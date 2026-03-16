@@ -1,157 +1,38 @@
+#nullable enable
+
 using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using JobCommandCenter.Harvester.Configuration;
+using JobCommandCenter.Harvester.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace JobCommandCenter.Harvester.Services;
 
 /// <summary>
-/// Validates Chrome remote debugging port availability using HTTP client.
+/// Configuration options for Chrome DevTools Protocol connection.
 /// </summary>
-public class ChromeValidator : IChromeValidator
+public sealed class CdpOptions
 {
-    private readonly HttpClient _httpClient;
-    private readonly ChromeCdpOptions _options;
-    private readonly ILogger<ChromeValidator> _logger;
+    /// <summary>
+    /// Gets or sets the CDP endpoint URL.
+    /// </summary>
+    public string EndpointUrl { get; set; } = "http://localhost:9222";
 
     /// <summary>
-    /// Initializes a new instance of the ChromeValidator class.
+    /// Gets or sets the connection timeout in seconds.
     /// </summary>
-    /// <param name="httpClient">HTTP client for making requests.</param>
-    /// <param name="options">Chrome CDP configuration options.</param>
-    /// <param name="logger">Logger instance.</param>
-    public ChromeValidator(
-        HttpClient httpClient,
-        ChromeCdpOptions options,
-        ILogger<ChromeValidator> logger)
-    {
-        _httpClient = httpClient;
-        _options = options;
-        _logger = logger;
-    }
+    public int ConnectionTimeoutSeconds { get; set; } = 30;
+}
 
-    /// <inheritdoc />
-    public async Task<ChromeValidationResult> CheckPortAvailabilityAsync(CancellationToken cancellationToken = default)
-    {
-        var url = $"http://localhost:{_options.Port}/json/version";
-        _logger.LogDebug("Checking Chrome CDP availability at {Url}", url);
-
-        try
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(_options.ConnectionTimeoutSeconds));
-
-            var response = await _httpClient.GetAsync(url, cts.Token).ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("Chrome CDP endpoint returned status {StatusCode}", response.StatusCode);
-                return CreateUnavailableResult(
-                    $"Chrome CDP endpoint returned HTTP {(int)response.StatusCode} ({response.StatusCode})",
-                    "Ensure Chrome is running with the correct remote debugging port.");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            return ParseChromeVersionResponse(content);
-        }
-        catch (HttpRequestException ex) when (ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: SocketError.ConnectionRefused })
-        {
-            _logger.LogWarning(ex, "Chrome CDP connection refused on port {Port}", _options.Port);
-            return CreateUnavailableResult(
-                $"Chrome is not running with remote debugging enabled on port {_options.Port}.",
-                GetChromeStartCommand());
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning(ex, "Chrome CDP HTTP request failed on port {Port}", _options.Port);
-            return CreateUnavailableResult(
-                $"Failed to connect to Chrome CDP: {ex.Message}",
-                GetChromeStartCommand());
-        }
-        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex, "Chrome CDP connection timed out after {Timeout} seconds", _options.ConnectionTimeoutSeconds);
-            return CreateUnavailableResult(
-                $"Connection to Chrome CDP timed out after {_options.ConnectionTimeoutSeconds} seconds.",
-                "Chrome may be slow to respond. Try restarting Chrome with remote debugging.");
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "Failed to parse Chrome CDP version response");
-            return CreateUnavailableResult(
-                "Chrome CDP returned an invalid response format.",
-                "Ensure you are using a compatible version of Chrome.");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error checking Chrome CDP availability");
-            return CreateUnavailableResult(
-                $"Unexpected error: {ex.Message}",
-                "Check that Chrome is properly installed and running.");
-        }
-    }
-
-    private ChromeValidationResult ParseChromeVersionResponse(string content)
-    {
-        try
-        {
-            var versionInfo = JsonSerializer.Deserialize<ChromeVersionResponse>(content, JsonOptions);
-
-            if (versionInfo is null)
-            {
-                _logger.LogWarning("Chrome CDP returned null version info");
-                return CreateUnavailableResult(
-                    "Chrome CDP returned an empty response.",
-                    "Ensure you are using a compatible version of Chrome.");
-            }
-
-            _logger.LogInformation(
-                "Chrome CDP available - Browser: {Browser}, Protocol: {Protocol}",
-                versionInfo.Browser,
-                versionInfo.WebSocketDebuggerUrl);
-
-            return new ChromeValidationResult
-            {
-                IsAvailable = true,
-                ChromeVersion = versionInfo.Browser,
-                UserDataDirectory = versionInfo.UserDataDir
-            };
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "Failed to deserialize Chrome version response: {Content}", content);
-            return CreateUnavailableResult(
-                "Chrome CDP returned an invalid JSON response.",
-                "Ensure you are using a compatible version of Chrome.");
-        }
-    }
-
-    private static ChromeValidationResult CreateUnavailableResult(string errorMessage, string resolutionGuidance)
-    {
-        return new ChromeValidationResult
-        {
-            IsAvailable = false,
-            ErrorMessage = errorMessage,
-            ResolutionGuidance = resolutionGuidance
-        };
-    }
-
-    private string GetChromeStartCommand()
-    {
-        var port = _options.Port;
-        return Environment.OSVersion.Platform switch
-        {
-            PlatformID.MacOSX => 
-                $"/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port={port}",
-            PlatformID.Unix => 
-                $"google-chrome --remote-debugging-port={port}",
-            PlatformID.Win32NT => 
-                $"chrome.exe --remote-debugging-port={port}",
-            _ => 
-                $"chrome --remote-debugging-port={port}"
-        };
-    }
+/// <summary>
+/// Validates Chrome DevTools Protocol port availability using HTTP probe.
+/// </summary>
+public sealed class ChromeValidator : IChromeValidator
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<ChromeValidator> _logger;
+    private readonly CdpOptions _options;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -160,26 +41,153 @@ public class ChromeValidator : IChromeValidator
     };
 
     /// <summary>
-    /// Response model for Chrome /json/version endpoint.
+    /// Creates a new instance of ChromeValidator.
     /// </summary>
-    private sealed class ChromeVersionResponse
+    public ChromeValidator(
+        IHttpClientFactory httpClientFactory,
+        ILogger<ChromeValidator> logger,
+        IOptions<CdpOptions> options)
     {
-        /// <summary>
-        /// Browser name and version.
-        /// </summary>
+        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+    }
+
+    /// <inheritdoc />
+    public async Task<ChromeValidationResult> CheckPortAvailabilityAsync(CancellationToken cancellationToken = default)
+    {
+        var versionUrl = $"{_options.EndpointUrl.TrimEnd('/')}/json/version";
+        
+        _logger.LogDebug("Checking Chrome CDP availability at {Url}", versionUrl);
+
+        try
+        {
+            using var httpClient = _httpClientFactory.CreateClient("ChromeValidator");
+            httpClient.Timeout = TimeSpan.FromSeconds(Math.Min(_options.ConnectionTimeoutSeconds, 10));
+
+            var response = await httpClient.GetAsync(versionUrl, cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Chrome CDP endpoint returned status {StatusCode}",
+                    response.StatusCode);
+
+                return ChromeValidationResult.Failure(
+                    $"Chrome returned HTTP {(int)response.StatusCode} ({response.StatusCode})",
+                    GetGuidanceForStatus(response.StatusCode));
+            }
+
+            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var versionInfo = JsonSerializer.Deserialize<ChromeVersionInfo>(jsonContent, JsonOptions);
+
+            if (versionInfo is null)
+            {
+                _logger.LogWarning("Chrome CDP endpoint returned invalid JSON response");
+                return ChromeValidationResult.Failure(
+                    "Chrome returned an invalid JSON response",
+                    "Ensure Chrome is running with remote debugging enabled. Try restarting Chrome with --remote-debugging-port=9222");
+            }
+
+            _logger.LogInformation(
+                "Chrome CDP available - Browser: {Browser}, User Data: {UserDataDir}",
+                versionInfo.Browser,
+                versionInfo.UserDataDir ?? "(default)");
+
+            return ChromeValidationResult.Success(
+                versionInfo.Browser ?? "Unknown",
+                versionInfo.UserDataDir);
+        }
+        catch (HttpRequestException ex) when (ex.InnerException is System.Net.Sockets.SocketException)
+        {
+            _logger.LogWarning(ex, "Chrome CDP port is not reachable - connection refused");
+            return CreateConnectionRefusedResult();
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("Connection refused", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(ex, "Chrome CDP port is not reachable - connection refused");
+            return CreateConnectionRefusedResult();
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogWarning(ex, "Chrome CDP connection timed out");
+            return ChromeValidationResult.Failure(
+                "Connection to Chrome timed out",
+                "The connection to Chrome took too long. Ensure Chrome is running with remote debugging enabled:\n\n" +
+                "macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222\n" +
+                "Linux: google-chrome --remote-debugging-port=9222\n" +
+                "Windows: chrome.exe --remote-debugging-port=9222");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Chrome validation was cancelled");
+            return ChromeValidationResult.Failure(
+                "Operation was cancelled",
+                "The validation request was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error checking Chrome CDP availability");
+            return ChromeValidationResult.Failure(
+                $"Unexpected error: {ex.Message}",
+                "An unexpected error occurred. Check the logs for details and ensure Chrome is running with:\n\n" +
+                "--remote-debugging-port=9222");
+        }
+    }
+
+    private static ChromeValidationResult CreateConnectionRefusedResult()
+    {
+        return ChromeValidationResult.Failure(
+            "Connection refused - Chrome is not running or remote debugging is disabled",
+            "Start Chrome with remote debugging enabled:\n\n" +
+            "macOS:\n" +
+            "  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222\n\n" +
+            "Linux:\n" +
+            "  google-chrome --remote-debugging-port=9222\n\n" +
+            "Windows:\n" +
+            "  chrome.exe --remote-debugging-port=9222\n\n" +
+            "Note: Close all Chrome instances before launching with this flag to ensure it takes effect.");
+    }
+
+    private static string GetGuidanceForStatus(HttpStatusCode statusCode)
+    {
+        return statusCode switch
+        {
+            HttpStatusCode.Unauthorized => "Chrome requires authentication. Check if another application is using port 9222.",
+            HttpStatusCode.Forbidden => "Access to Chrome DevTools is forbidden. Check Chrome's security settings.",
+            HttpStatusCode.NotFound => "The Chrome DevTools endpoint was not found. Ensure Chrome is running with --remote-debugging-port=9222",
+            HttpStatusCode.ServiceUnavailable => "Chrome DevTools is temporarily unavailable. Try restarting Chrome.",
+            _ => "Ensure Chrome is running with remote debugging enabled:\n\n" +
+                  "macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222\n" +
+                  "Linux: google-chrome --remote-debugging-port=9222\n" +
+                  "Windows: chrome.exe --remote-debugging-port=9222"
+        };
+    }
+
+    /// <summary>
+    /// Represents the Chrome version information returned by /json/version endpoint.
+    /// </summary>
+    private sealed class ChromeVersionInfo
+    {
         [JsonPropertyName("Browser")]
         public string? Browser { get; set; }
 
-        /// <summary>
-        /// WebSocket debugger URL.
-        /// </summary>
+        [JsonPropertyName("Protocol-Version")]
+        public string? ProtocolVersion { get; set; }
+
+        [JsonPropertyName("User-Agent")]
+        public string? UserAgent { get; set; }
+
+        [JsonPropertyName("V8-Version")]
+        public string? V8Version { get; set; }
+
+        [JsonPropertyName("WebKit-Version")]
+        public string? WebKitVersion { get; set; }
+
         [JsonPropertyName("webSocketDebuggerUrl")]
         public string? WebSocketDebuggerUrl { get; set; }
 
-        /// <summary>
-        /// User data directory path.
-        /// </summary>
-        [JsonPropertyName("userDataDir")]
+        [JsonPropertyName("user-data-dir")]
         public string? UserDataDir { get; set; }
     }
 }
