@@ -66,24 +66,6 @@
           "OpenTelemetry.Api": "[1.14.0, 2.0.0)"
         }
       },
-      "Serilog.Enrichers.Environment": {
-        "type": "Direct",
-        "requested": "[3.0.0, )",
-        "resolved": "3.0.0",
-        "contentHash": "RKtJC4MkEpwapJFMtXUN2eeaxePSStllCM8388OmVH+bKn7rMvpTz5C9gzGH7+Aygk4iFTFOSPBrGCV13N7V8Q==",
-        "dependencies": {
-          "Serilog": "4.0.0"
-        }
-      },
-      "Serilog.Enrichers.Thread": {
-        "type": "Direct",
-        "requested": "[4.0.0, )",
-        "resolved": "4.0.0",
-        "contentHash": "C7BK25a1rhUyr+Tp+1BYcVlBJq7M2VCHlIgnwoIUVJcicM9jYcvQK18+OeHiXw7uLPSjqWxJIp1EfaZ/RGmEwA==",
-        "dependencies": {
-          "Serilog": "4.0.0"
-        }
-      },
       "Serilog.Extensions.Hosting": {
         "type": "Direct",
         "requested": "[9.0.0, )",
