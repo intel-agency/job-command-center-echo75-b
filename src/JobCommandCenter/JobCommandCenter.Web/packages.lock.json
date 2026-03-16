@@ -345,6 +345,19 @@
           "Polly.Core": "8.4.2"
         }
       },
+      "Serilog": {
+        "type": "Transitive",
+        "resolved": "4.2.0",
+        "contentHash": "gmoWVOvKgbME8TYR+gwMf7osROiWAURterc6Rt2dQyX7wtjZYpqFiA/pY6ztjGQKKV62GGCyOcmtP1UKMHgSmA=="
+      },
+      "Serilog.Extensions.Logging": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "NwSSYqPJeKNzl5AuXVHpGbr6PkZJFlNa14CdIebVjK3k/76kYj/mz5kiTRNVSsSaxM8kAIa1kpy/qyT9E4npRQ==",
+        "dependencies": {
+          "Serilog": "4.2.0"
+        }
+      },
       "System.CodeDom": {
         "type": "Transitive",
         "resolved": "9.0.0",
@@ -463,7 +476,13 @@
           "OpenTelemetry.Extensions.Hosting": "[1.14.0, )",
           "OpenTelemetry.Instrumentation.AspNetCore": "[1.14.0, )",
           "OpenTelemetry.Instrumentation.Http": "[1.14.0, )",
-          "OpenTelemetry.Instrumentation.Runtime": "[1.14.0, )"
+          "OpenTelemetry.Instrumentation.Runtime": "[1.14.0, )",
+          "Serilog.Enrichers.Environment": "[3.0.0, )",
+          "Serilog.Enrichers.Thread": "[4.0.0, )",
+          "Serilog.Extensions.Hosting": "[9.0.0, )",
+          "Serilog.Settings.Configuration": "[9.0.0, )",
+          "Serilog.Sinks.Console": "[6.0.0, )",
+          "Serilog.Sinks.File": "[6.0.0, )"
         }
       },
       "jobcommandcenter.shared": {
@@ -544,6 +563,62 @@
         "contentHash": "Z6o4JDOQaKv6bInAYZxuyxxfMKr6hFpwLnKEgQ+q+oBNA9Fm1sysjFCOzRzk7U0WD86LsRPXX+chv1vJIg7cfg==",
         "dependencies": {
           "OpenTelemetry.Api": "[1.14.0, 2.0.0)"
+        }
+      },
+      "Serilog.Enrichers.Environment": {
+        "type": "CentralTransitive",
+        "requested": "[3.0.0, )",
+        "resolved": "3.0.0",
+        "contentHash": "RKtJC4MkEpwapJFMtXUN2eeaxePSStllCM8388OmVH+bKn7rMvpTz5C9gzGH7+Aygk4iFTFOSPBrGCV13N7V8Q==",
+        "dependencies": {
+          "Serilog": "4.0.0"
+        }
+      },
+      "Serilog.Enrichers.Thread": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.0, )",
+        "resolved": "4.0.0",
+        "contentHash": "C7BK25a1rhUyr+Tp+1BYcVlBJq7M2VCHlIgnwoIUVJcicM9jYcvQK18+OeHiXw7uLPSjqWxJIp1EfaZ/RGmEwA==",
+        "dependencies": {
+          "Serilog": "4.0.0"
+        }
+      },
+      "Serilog.Extensions.Hosting": {
+        "type": "CentralTransitive",
+        "requested": "[9.0.0, )",
+        "resolved": "9.0.0",
+        "contentHash": "u2TRxuxbjvTAldQn7uaAwePkWxTHIqlgjelekBtilAGL5sYyF3+65NWctN4UrwwGLsDC7c3Vz3HnOlu+PcoxXg==",
+        "dependencies": {
+          "Serilog": "4.2.0",
+          "Serilog.Extensions.Logging": "9.0.0"
+        }
+      },
+      "Serilog.Settings.Configuration": {
+        "type": "CentralTransitive",
+        "requested": "[9.0.0, )",
+        "resolved": "9.0.0",
+        "contentHash": "4/Et4Cqwa+F88l5SeFeNZ4c4Z6dEAIKbu3MaQb2Zz9F/g27T5a3wvfMcmCOaAiACjfUb4A6wrlTVfyYUZk3RRQ==",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyModel": "9.0.0",
+          "Serilog": "4.2.0"
+        }
+      },
+      "Serilog.Sinks.Console": {
+        "type": "CentralTransitive",
+        "requested": "[6.0.0, )",
+        "resolved": "6.0.0",
+        "contentHash": "fQGWqVMClCP2yEyTXPIinSr5c+CBGUvBybPxjAGcf7ctDhadFhrQw03Mv8rJ07/wR5PDfFjewf2LimvXCDzpbA==",
+        "dependencies": {
+          "Serilog": "4.0.0"
+        }
+      },
+      "Serilog.Sinks.File": {
+        "type": "CentralTransitive",
+        "requested": "[6.0.0, )",
+        "resolved": "6.0.0",
+        "contentHash": "lxjg89Y8gJMmFxVkbZ+qDgjl+T4yC5F7WSLTvA+5q0R04tfKVLRL/EHpYoJ/MEQd2EeCKDuylBIVnAYMotmh2A==",
+        "dependencies": {
+          "Serilog": "4.0.0"
         }
       }
     }
