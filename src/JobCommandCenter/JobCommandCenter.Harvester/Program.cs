@@ -1,7 +1,10 @@
 using JobCommandCenter.Data;
+using JobCommandCenter.Harvester.Configuration;
+using JobCommandCenter.Harvester.Services;
 using JobCommandCenter.Harvester.Workers;
 using JobCommandCenter.Shared.Models;
 using JobCommandCenter.Shared.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -24,6 +27,17 @@ builder.Services.AddSingleton(new ScoringConfig
     }
 });
 builder.Services.AddSingleton<ScoringEngine>();
+
+// Configure Chrome CDP options
+builder.Services.AddSingleton<ChromeCdpOptions>(sp =>
+{
+    var options = new ChromeCdpOptions();
+    builder.Configuration.GetSection("ChromeCdp").Bind(options);
+    return options;
+});
+
+// Register Chrome validator
+builder.Services.AddHttpClient<IChromeValidator, ChromeValidator>();
 
 // Add the harvester worker
 builder.Services.AddHostedService<HarvestWorker>();

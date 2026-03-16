@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\JobCommandCenter.Data\JobCommandCenter.Data.csproj" />
     <ProjectReference Include="..\..\JobCommandCenter.Harvester\JobCommandCenter.Harvester.csproj" />
     <ProjectReference Include="..\..\JobCommandCenter.Shared\JobCommandCenter.Shared.csproj" />
+    <ProjectReference Include="..\..\JobCommandCenter.Harvester\JobCommandCenter.Harvester.csproj" />
   </ItemGroup>
 
   <ItemGroup>
