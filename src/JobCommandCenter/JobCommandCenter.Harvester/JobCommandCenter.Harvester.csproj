@@ -16,5 +16,6 @@
   <ItemGroup>
     <ProjectReference Include="..\JobCommandCenter.Shared\JobCommandCenter.Shared.csproj" />
     <ProjectReference Include="..\JobCommandCenter.Data\JobCommandCenter.Data.csproj" />
+    <ProjectReference Include="..\JobCommandCenter.ServiceDefaults\JobCommandCenter.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>
