@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace JobCommandCenter.Shared.Models;
 
 /// <summary>
@@ -8,35 +10,54 @@ public enum JobStatus
     /// <summary>
     /// Job has been scraped but not yet reviewed.
     /// </summary>
+    [Description("Found")]
     Found = 0,
+
+    /// <summary>
+    /// Job has been saved for later review.
+    /// </summary>
+    [Description("Saved")]
+    Saved = 1,
 
     /// <summary>
     /// Job has been scored by the scoring engine.
     /// </summary>
-    Scored = 1,
+    [Description("Scored")]
+    Scored = 2,
 
     /// <summary>
     /// User has approved the job for application.
     /// </summary>
-    Pending = 2,
+    [Description("Pending")]
+    Pending = 3,
 
     /// <summary>
     /// Application has been submitted.
     /// </summary>
-    Applied = 3,
+    [Description("Applied")]
+    Applied = 4,
 
     /// <summary>
     /// Interview has been scheduled.
     /// </summary>
-    Interviewing = 4,
+    [Description("Interviewing")]
+    Interviewing = 5,
+
+    /// <summary>
+    /// Job offer has been received.
+    /// </summary>
+    [Description("Offered")]
+    Offered = 6,
 
     /// <summary>
     /// Job is no longer relevant (archived).
     /// </summary>
-    Archived = 5,
+    [Description("Archived")]
+    Archived = 7,
 
     /// <summary>
     /// User rejected the job.
     /// </summary>
-    Rejected = 6
+    [Description("Rejected")]
+    Rejected = 8
 }
