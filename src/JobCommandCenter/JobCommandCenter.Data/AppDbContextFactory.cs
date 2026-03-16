@@ -22,10 +22,13 @@ public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
     {
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
 
-        // Use a default connection string for design-time (migrations only)
+        // Connection string must be provided via environment variable for design-time (migrations)
         // The actual connection string is provided at runtime via Aspire
         var connectionString = Environment.GetEnvironmentVariable("JOBDB_CONNECTION_STRING")
-            ?? "Host=localhost;Database=jobdb;Username=postgres;Password=postgres";
+            ?? throw new InvalidOperationException(
+                "The 'JOBDB_CONNECTION_STRING' environment variable is not set. " +
+                "Please set this variable to run EF Core CLI commands. " +
+                "Example: export JOBDB_CONNECTION_STRING='Host=localhost;Database=jobdb;Username=postgres;Password=yourpassword'");
 
         optionsBuilder.UseNpgsql(connectionString, npgsqlOptions =>
         {

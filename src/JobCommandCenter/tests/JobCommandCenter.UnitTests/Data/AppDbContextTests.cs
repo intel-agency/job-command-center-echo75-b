@@ -87,9 +87,9 @@ public class AppDbContextTests : IDisposable
 
         var afterSave = DateTime.UtcNow;
 
-        // Assert
-        entity.CreatedAt.Should().BeOnOrAfter(beforeSave);
-        entity.CreatedAt.Should().BeOnOrBefore(afterSave);
+        // Assert - Only UpdatedAt is set by code; CreatedAt is handled by database default (NOW())
+        // In-memory database doesn't execute SQL defaults, so CreatedAt remains default(DateTime)
+        // This behavior is tested in integration tests with real PostgreSQL
         entity.UpdatedAt.Should().BeOnOrAfter(beforeSave);
         entity.UpdatedAt.Should().BeOnOrBefore(afterSave);
     }
@@ -144,38 +144,7 @@ public class AppDbContextTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task AppDbContext_PreventsDuplicateLinkedInJobIds()
-    {
-        // Arrange
-        var entity1 = new JobEntity
-        {
-            Id = Guid.NewGuid(),
-            LinkedInJobId = "duplicate-id",
-            Title = "Job 1",
-            Company = "Company 1",
-            Url = "https://linkedin.com/jobs/1"
-        };
-
-        var entity2 = new JobEntity
-        {
-            Id = Guid.NewGuid(),
-            LinkedInJobId = "duplicate-id",
-            Title = "Job 2",
-            Company = "Company 2",
-            Url = "https://linkedin.com/jobs/2"
-        };
-
-        // Act
-        _context.Jobs.Add(entity1);
-        await _context.SaveChangesAsync();
-
-        // In-memory database doesn't enforce unique constraints
-        // This test documents expected behavior with real database
-        // With PostgreSQL, this would throw a unique constraint violation
-
-        // Assert
-        var count = await _context.Jobs.CountAsync();
-        count.Should().Be(1);
-    }
+    // Note: Duplicate LinkedInJobId prevention is tested in integration tests
+    // (JobCommandCenter.IntegrationTests) where Testcontainers PostgreSQL enforces
+    // the unique constraint. In-memory database doesn't enforce unique constraints.
 }

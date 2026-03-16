@@ -72,7 +72,7 @@ public class JobEntityConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.HasIndex(e => e.Score)
             .HasDatabaseName("IX_Jobs_Score");
 
-        // Status - store as integer for efficiency
+        // Status - store as string for readability and enum name preservation
         builder.Property(e => e.Status)
             .HasConversion<string>()
             .HasMaxLength(20)

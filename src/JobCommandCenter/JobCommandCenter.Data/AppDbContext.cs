@@ -71,6 +71,7 @@ public class AppDbContext : DbContext
 
     /// <summary>
     /// Updates the UpdatedAt timestamp for all modified entities.
+    /// Note: CreatedAt is handled by database default value (NOW()) configured in JobEntityConfiguration.
     /// </summary>
     private void UpdateTimestamps()
     {
@@ -79,11 +80,7 @@ public class AppDbContext : DbContext
 
         foreach (var entry in entries)
         {
-            if (entry.State == EntityState.Added)
-            {
-                entry.Entity.CreatedAt = DateTime.UtcNow;
-            }
-
+            // CreatedAt is handled by database default, so we only update UpdatedAt here
             entry.Entity.UpdatedAt = DateTime.UtcNow;
         }
     }
