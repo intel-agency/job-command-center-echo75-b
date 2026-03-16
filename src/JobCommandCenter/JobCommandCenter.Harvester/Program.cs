@@ -39,6 +39,12 @@ builder.Services.AddSingleton<ChromeCdpOptions>(sp =>
 // Register Chrome validator
 builder.Services.AddHttpClient<IChromeValidator, ChromeValidator>();
 
+// Register CDP connection factory
+builder.Services.AddSingleton<ICdpConnectionFactory, CdpConnectionFactory>();
+
+// Register tab manager
+builder.Services.AddSingleton<ITabManager, TabManager>();
+
 // Add the harvester worker
 builder.Services.AddHostedService<HarvestWorker>();
 
