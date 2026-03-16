@@ -32,6 +32,20 @@
           "Microsoft.Extensions.Options": "10.0.4"
         }
       },
+      "Microsoft.Extensions.Http": {
+        "type": "Direct",
+        "requested": "[10.0.4, )",
+        "resolved": "10.0.4",
+        "contentHash": "QRbs+A+WfiGTnV9KFNfWlF+My5euQNZnsvdVMulwRN6C/tEPaF+ZlQfedHoNvFHKLwjQMmqwm4z+TSO9eLvRQw==",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "10.0.4",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.4",
+          "Microsoft.Extensions.Diagnostics": "10.0.4",
+          "Microsoft.Extensions.Logging": "10.0.4",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.4",
+          "Microsoft.Extensions.Options": "10.0.4"
+        }
+      },
       "Microsoft.Playwright": {
         "type": "Direct",
         "requested": "[1.58.0, )",
