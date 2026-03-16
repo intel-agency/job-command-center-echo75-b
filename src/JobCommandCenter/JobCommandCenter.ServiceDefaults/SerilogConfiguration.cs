@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using Serilog.Events;
@@ -84,9 +86,12 @@ public static class SerilogConfiguration
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .Enrich.FromLogContext()
+            .Enrich.WithThreadId()
+            .Enrich.WithProcessId()
+            .Enrich.WithMachineName()
             .WriteTo.Console(
                 theme: DefaultTheme,
-                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{MachineName}:{ThreadId}] {Message:lj}{NewLine}{Exception}")
             .CreateBootstrapLogger();
     }
 
@@ -109,6 +114,200 @@ public static class SerilogConfiguration
             .ConfigureSinks(configuration, environment);
 
         return loggerConfig;
+    }
+
+    /// <summary>
+    /// Configures Serilog from the provided configuration.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="applicationName">The application name for log context enrichment.</param>
+    /// <param name="environmentName">The environment name (Development, Production, etc.).</param>
+    /// <returns>A configured logger instance.</returns>
+    public static ILogger ConfigureSerilog(IConfiguration configuration, string? applicationName = null, string? environmentName = null)
+    {
+        var loggerConfiguration = new LoggerConfiguration()
+            .ReadFrom.Configuration(configuration);
+
+        // Configure enrichers for context and correlation
+        ConfigureEnrichers(loggerConfiguration, configuration, applicationName, environmentName);
+
+        // Configure minimum log level
+        var minimumLevel = GetMinimumLogLevel(configuration, environmentName);
+        loggerConfiguration.MinimumLevel.Is(minimumLevel);
+
+        // Apply namespace-specific overrides
+        ApplyLogLevelOverrides(loggerConfiguration, configuration);
+
+        // Configure sinks
+        ConfigureSinks(loggerConfiguration, configuration, environmentName);
+
+        return loggerConfiguration.CreateLogger();
+    }
+
+    /// <summary>
+    /// Configures all enrichers for structured logging context.
+    /// Includes standard Serilog enrichers and custom job context enrichment.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="applicationName">The application name for service identity.</param>
+    /// <param name="environmentName">The environment name (Development, Production, etc.).</param>
+    private static void ConfigureEnrichers(
+        LoggerConfiguration loggerConfiguration,
+        IConfiguration configuration,
+        string? applicationName,
+        string? environmentName)
+    {
+        // Enable log context for dynamic enrichment from scopes
+        loggerConfiguration.Enrich.FromLogContext();
+
+        // Standard Serilog enrichers
+        loggerConfiguration
+            .Enrich.WithThreadId()           // ThreadId for concurrent operation tracking
+            .Enrich.WithProcessId()          // ProcessId for multi-process scenarios
+            .Enrich.WithMachineName()        // MachineName for distributed systems
+            .Enrich.WithEnvironmentUserName(); // EnvironmentUserName for audit trails
+
+        // Custom job context enricher for correlation
+        loggerConfiguration.Enrich.With(new JobContextEnricher());
+
+        // Service identity properties
+        ConfigureServiceIdentity(loggerConfiguration, configuration, applicationName, environmentName);
+    }
+
+    /// <summary>
+    /// Configures service identity properties for log correlation and observability.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="applicationName">The application name.</param>
+    /// <param name="environmentName">The environment name.</param>
+    private static void ConfigureServiceIdentity(
+        LoggerConfiguration loggerConfiguration,
+        IConfiguration configuration,
+        string? applicationName,
+        string? environmentName)
+    {
+        // Service name - prioritize configuration, then parameter, then fallback
+        var serviceName = configuration["Service:Name"]
+            ?? configuration["ApplicationName"]
+            ?? applicationName
+            ?? "Unknown";
+
+        // Service version - try configuration, then assembly version
+        var serviceVersion = configuration["Service:Version"]
+            ?? GetAssemblyVersion();
+
+        // Environment name - try configuration, then parameter, then fallback
+        var envName = configuration["Environment"]
+            ?? configuration["ASPNETCORE_ENVIRONMENT"]
+            ?? environmentName
+            ?? "Unknown";
+
+        // Add service identity properties
+        loggerConfiguration
+            .Enrich.WithProperty("ServiceName", serviceName)
+            .Enrich.WithProperty("ServiceVersion", serviceVersion)
+            .Enrich.WithProperty("Environment", envName);
+
+        // Add MachineName as an explicit property (also available via enricher but useful for queries)
+        loggerConfiguration.Enrich.WithProperty("MachineName", Environment.MachineName);
+    }
+
+    /// <summary>
+    /// Gets the assembly version for service identity.
+    /// </summary>
+    /// <returns>The assembly version string or "Unknown" if not available.</returns>
+    private static string GetAssemblyVersion()
+    {
+        try
+        {
+            var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+            var version = assembly.GetName().Version;
+            return version?.ToString() ?? "Unknown";
+        }
+        catch
+        {
+            return "Unknown";
+        }
+    }
+
+    /// <summary>
+    /// Gets the minimum log level from configuration.
+    /// Defaults to Information if not specified.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="environmentName">The environment name for defaults.</param>
+    /// <returns>The configured minimum log event level.</returns>
+    private static LogEventLevel GetMinimumLogLevel(IConfiguration configuration, string? environmentName = null)
+    {
+        var minimumLevelString = configuration["Serilog:MinimumLevel:Default"]
+            ?? configuration["Serilog:MinimumLevel"]
+            ?? GetDefaultMinimumLevel(environmentName);
+
+        return ParseLogEventLevel(minimumLevelString);
+    }
+
+    /// <summary>
+    /// Gets the default minimum log level based on environment name.
+    /// </summary>
+    private static string GetDefaultMinimumLevel(string? environmentName)
+    {
+        return environmentName switch
+        {
+            "Development" => "Debug",
+            "Staging" => "Information",
+            "Production" => "Information",
+            _ => "Information"
+        };
+    }
+
+    /// <summary>
+    /// Applies log level overrides for specific namespaces from configuration.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    private static void ApplyLogLevelOverrides(LoggerConfiguration loggerConfiguration, IConfiguration configuration)
+    {
+        var overrideSection = configuration.GetSection("Serilog:MinimumLevel:Override");
+        if (overrideSection.Exists())
+        {
+            foreach (var overrideItem in overrideSection.GetChildren())
+            {
+                var namespaceName = overrideItem.Key;
+                var levelString = overrideItem.Value;
+                if (!string.IsNullOrEmpty(levelString))
+                {
+                    var level = ParseLogEventLevel(levelString);
+                    loggerConfiguration.MinimumLevel.Override(namespaceName, level);
+                }
+            }
+        }
+
+        // Apply default overrides for noisy namespaces
+        loggerConfiguration
+            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+            .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning);
+    }
+
+    /// <summary>
+    /// Parses a string to a LogEventLevel, defaulting to Information if parsing fails.
+    /// </summary>
+    /// <param name="levelString">The string representation of the log level.</param>
+    /// <returns>The parsed LogEventLevel.</returns>
+    private static LogEventLevel ParseLogEventLevel(string? levelString)
+    {
+        return levelString?.ToLowerInvariant() switch
+        {
+            "verbose" or "trace" => LogEventLevel.Verbose,
+            "debug" => LogEventLevel.Debug,
+            "information" or "info" => LogEventLevel.Information,
+            "warning" or "warn" => LogEventLevel.Warning,
+            "error" => LogEventLevel.Error,
+            "fatal" or "critical" => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information
+        };
     }
 
     /// <summary>
@@ -163,6 +362,37 @@ public static class SerilogConfiguration
         ConfigureFileSink(loggerConfig, configuration);
 
         return loggerConfig;
+    }
+
+    /// <summary>
+    /// Configures the output sinks based on configuration.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="environmentName">The environment name.</param>
+    private static void ConfigureSinks(LoggerConfiguration loggerConfiguration, IConfiguration configuration, string? environmentName)
+    {
+        // Always add console sink with a reasonable format
+        var consoleTemplate = configuration["Serilog:WriteTo:0:Args:outputTemplate"]
+            ?? DefaultConsoleTemplate;
+        var theme = GetConsoleTheme(configuration);
+        var consoleMinimumLevel = environmentName == "Development" ? LogEventLevel.Debug : LogEventLevel.Information;
+        loggerConfiguration.WriteTo.Console(theme: theme, outputTemplate: consoleTemplate, restrictedToMinimumLevel: consoleMinimumLevel);
+
+        // Add file sink if configured
+        var filePath = configuration["Serilog:WriteTo:1:Args:path"];
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            var rollingInterval = GetRollingInterval(configuration["Serilog:WriteTo:1:Args:rollingInterval"]);
+            var fileTemplate = configuration["Serilog:WriteTo:1:Args:outputTemplate"]
+                ?? DefaultFileTemplate;
+
+            loggerConfiguration.WriteTo.File(
+                path: filePath,
+                outputTemplate: fileTemplate,
+                rollingInterval: rollingInterval,
+                retainedFileCountLimit: 31);
+        }
     }
 
     /// <summary>
