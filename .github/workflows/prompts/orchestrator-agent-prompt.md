@@ -19,6 +19,7 @@ Find a clause with all mentioned values matching the current data passed in.
 - Stop looking once a match is found.
 - Execute logic found in matching clause's content.
 - Clause values are references to members in the event data. For example, if the clause mentions `type: opened`, it is referring to the `action` field in the event data which has a value of `opened`.
+- After executing the logic in a matching clause, skip the rest of the clauses and jump to the ##Final section at the end of this prompt.
 
 - If no match is found, execute the `(default)` clause if it exists.
 - If no match is found and no `(default)` clause exists, do nothing and execute the ##Final section.
@@ -34,6 +35,51 @@ If the issue or comment or other entity that triggered this workflow contains th
   - Before executing the logic in any matching clause, print a message "DEBUG MODE:" and increase the level of your logging and output of internal state information, including the content of relevant variables and the reasoning behind your decisions. Add any arguments or instruct any commands that you execute to increase their tracing and debug output levels as well. Then proceed to execute the logic as normal.
   - **As always, be careful to not print any secrets, API keys, passwords, or other sensitive information in the increased output in debug mode.**
 
+## Helper Functions
+
+These are reusable procedures referenced by the clause logic below. When a clause calls one of these functions, execute the steps described here and return the result.
+
+### find_next_unimplemented_line_item(completed_phase?, completed_line_item?)
+
+> Determines the next phase and line_item to create an Epic for.
+>
+> **Inputs** (optional): `completed_phase` and `completed_line_item` — the identifiers of the item that was just completed. If omitted, start from the very beginning of the plan.
+>
+> **Steps:**
+> 1. Locate the "Complete Implementation (Application Plan)" issue in this repository. Read its body to obtain the ordered list of phases and line_items.
+> 2. If `completed_phase` and `completed_line_item` were provided, find that item in the plan and begin scanning from the **next** item. Otherwise begin scanning from the first item.
+> 3. For each candidate line_item (in plan order), search the repo's issues for a matching Epic issue (title typically contains the phase number and line_item identifier).
+>    - If no Epic exists, or the Epic is **not** labeled `implementation:complete`, this is the next item. Return its `phase` and `line_item`.
+>    - If the Epic exists and is labeled `implementation:complete`, skip it and continue.
+> 4. If the end of the current phase is reached, advance to the first line_item of the next phase and continue scanning.
+> 5. If **every** line_item in every phase is already complete, return `null` — there is nothing left to implement.
+>
+> **Returns:** `{ phase, line_item }` or `null`.
+
+### extract_epic_from_title(title)
+
+> Parses the issue title to extract the epic identifier string.
+>
+> **Input:** `title` — the issue title (e.g. "Epic: Phase 1 — Task 1.2 — Data Modeling").
+>
+> **Steps:**
+> 1. Extract the phase number and line_item identifier from the title text.
+>
+> **Returns:** The epic identifier string suitable for passing to `implement-epic`.
+
+### parse_workflow_dispatch_body(body)
+
+> Parses the body of an `orchestrate-dynamic-workflow` dispatch issue to extract the workflow name and its arguments.
+>
+> **Input:** `body` — the issue body text.
+>
+> **Steps:**
+> 1. Read the issue body and identify the workflow name (e.g. `create-epic-v2`, `implement-epic`).
+> 2. Extract any key-value argument pairs provided (e.g. `$phase = "1"`, `$line_item = "1.1"`, `$epic = "..."`).
+> 3. Validate that the workflow name matches a known dynamic workflow.
+>
+> **Returns:** `{ workflow_name, args }` where `args` is a map of parameter names to values, or `null` if the body could not be parsed.
+
 ## Match Clause Cases
 
  case (type = issues &&
@@ -41,8 +87,10 @@ If the issue or comment or other entity that triggered this workflow contains th
         labels contains: "implementation:ready" &&
         title contains: "Complete Implementation (Application Plan)")
         {
+          - $next = find_next_unimplemented_line_item()
+          - if $next is null → skip to ##Final with message "All line items are already complete."
           - /orchestrate-dynamic-workflow
-              $workflow_name = create-epic-v2 { $phase = "1", $line_item = "1.1" }
+              $workflow_name = create-epic-v2 { $phase = $next.phase, $line_item = $next.line_item }
         }
 
  case (type = issues &&
@@ -50,9 +98,10 @@ If the issue or comment or other entity that triggered this workflow contains th
         labels contains: "implementation:ready" &&
         title contains: "Epic")
         {
+          - $implement_epic = extract_epic_from_title(title)
+          - if $implement_epic is null or empty → comment on the issue with an error explaining the title could not be parsed, then skip to ##Final.
           - /orchestrate-dynamic-workflow
-              <!-- $workflow_name = create-epic-v2 { } -->
-               $workflow_name = implement-epic { $epic = extract_epic_from_title(title) }
+               $workflow_name = implement-epic { $epic = $implement_epic }
 
           - if the dynamic workflow completes successfully, add the "implementation:complete" label to the issue to mark it as complete
         }
@@ -62,29 +111,24 @@ case (type = issues &&
         labels contains: "implementation:complete" &&
         title contains: "Epic")
         {
-          1. From the completed Epic issue, extract the phase and line_item identifiers
-             (e.g. from the title, body, or labels — typically formatted as "Phase N" / "Task N.M").
-          2. Locate the "Complete Implementation (Application Plan)" issue in this repository.
-             Read its body to obtain the full list of phases and line_items.
-          3. Walk the plan in order. Find the next line_item after the one that was just completed
-             whose Epic does not yet exist or is not labeled "implementation:complete".
-             - If the completed item is the last in its phase, advance to the first line_item
-               of the next phase.
-             - If every line_item in every phase is already complete, skip to ##Final with a
-               summary message — there is nothing left to create.
-          4. Invoke the workflow with the discovered values:
-             - /orchestrate-dynamic-workflow
-                 $workflow_name = create-epic-v2 { $phase = "<next_phase>", $line_item = "<next_line_item>" }
+          - $completed = extract_epic_from_title(title)
+          - $next = find_next_unimplemented_line_item($completed.phase, $completed.line_item)
+          - if $next is null → skip to ##Final with message "All line items are already complete."
+          - /orchestrate-dynamic-workflow
+              $workflow_name = create-epic-v2 { $phase = $next.phase, $line_item = $next.line_item }
         }
 
 case (type = issues &&
        action = opened &&
        title contains: "orchestrate-dynamic-workflow")
        {
-          - read and parse the issue body for instructions to determine which workflow to trigger and with what parameters, then trigger that workflow with those parameters.
+          - $dispatch = parse_workflow_dispatch_body(body)
+          - if $dispatch is null → comment on the issue with an error explaining the body could not be parsed, then skip to ##Final.
+          - /orchestrate-dynamic-workflow
+              $workflow_name = $dispatch.workflow_name { ...$dispatch.args }
           - after the workflow completes, comment on the issue with a summary of the workflow's execution and its results.
             - if the workflow succeeds, close the issue with a short comment indicating success.
-            - if the workflow fails, leave the issue open and comment with details about the failure and potential next steps and details that would aid in tracing and debugging the failure.
+            - if the workflow fails, leave the issue open and comment with details about the failure and potential next steps.
        }
 
 case (default)
