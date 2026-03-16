@@ -1,12 +1,85 @@
+using System.Diagnostics;
+using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using Serilog.Events;
+using Serilog.Sinks.OpenTelemetry;
+using Serilog.Sinks.SystemConsole.Themes;
 
 namespace Microsoft.Extensions.Hosting;
 
 /// <summary>
-/// Provides Serilog configuration helpers for bootstrap logging and environment-aware setup.
+/// Provides Serilog configuration methods for bootstrapping and runtime configuration.
+/// This class implements structured logging best practices with automatic enrichment
+/// for distributed tracing, job context, and service identity.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Structured Logging Conventions:</strong>
+/// </para>
+/// <list type="bullet">
+///   <item><description>Use PascalCase for property names (e.g., <c>JobId</c>, <c>CorrelationId</c>)</description></item>
+///   <item><description>Use message templates with named placeholders: <c>"Processing job {JobId}"</c></description></item>
+///   <item><description>Avoid string interpolation in log messages - use structured properties instead</description></item>
+///   <item><description>Include context via enrichers rather than manual properties</description></item>
+/// </list>
+/// <para>
+/// <strong>Usage Example:</strong>
+/// </para>
+/// <code>
+/// // In Program.cs - Bootstrap logger for early startup errors
+/// Log.Logger = SerilogConfiguration.CreateBootstrapLogger();
+/// 
+/// try
+/// {
+///     var builder = WebApplication.CreateBuilder(args);
+///     
+///     // Configure full Serilog from appsettings.json
+///     builder.Services.AddSerilog((services, loggerConfiguration) =>
+///     {
+///         var config = services.GetRequiredService&lt;IConfiguration&gt;();
+///         var logger = SerilogConfiguration.ConfigureSerilog(
+///             config, 
+///             applicationName: "MyService",
+///             environmentName: builder.Environment.EnvironmentName);
+///         loggerConfiguration.Serilog(logger);
+///     });
+///     
+///     var app = builder.Build();
+///     app.Run();
+/// }
+/// catch (Exception ex)
+/// {
+///     Log.Fatal(ex, "Application terminated unexpectedly");
+/// }
+/// finally
+/// {
+///     Log.CloseAndFlush();
+/// }
+/// </code>
+/// </remarks>
+/// <example>
+/// <para>Good structured logging pattern:</para>
+/// <code>
+/// // GOOD: Structured logging with named properties
+/// _logger.LogInformation("Processing job {JobId} with status {Status}", jobId, status);
+/// 
+/// // GOOD: Using scope for context enrichment
+/// using var scope = _logger.BeginScope(new Dictionary&lt;string, object&gt;
+/// {
+///     ["CorrelationId"] = correlationId
+/// });
+/// _logger.LogInformation("Starting harvest operation");
+/// </code>
+/// <para>Bad logging pattern (avoid):</para>
+/// <code>
+/// // BAD: String interpolation loses structure
+/// _logger.LogInformation($"Processing job {jobId}");
+/// 
+/// // BAD: Positional parameters without names
+/// _logger.LogInformation("Processing job {0}", jobId);
+/// </code>
+/// </example>
 public static class SerilogConfiguration
 {
     private const string DefaultOutputTemplate = "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}";
@@ -14,6 +87,63 @@ public static class SerilogConfiguration
     private const string DefaultLogFileName = "jcc-.log";
     private const int RetainedFileCount = 31;
     private const long FileSizeLimitBytes = 10 * 1024 * 1024; // 10 MB
+
+    /// <summary>
+    /// Default ANSI theme for console output with colored log levels.
+    /// </summary>
+    private static readonly AnsiConsoleTheme DefaultTheme = new AnsiConsoleTheme(
+        new Dictionary<ConsoleThemeStyle, string>
+        {
+            [ConsoleThemeStyle.Text] = "\x1b[37m",                           // White (default text)
+            [ConsoleThemeStyle.SecondaryText] = "\x1b[90m",                  // Bright black (gray)
+            [ConsoleThemeStyle.TertiaryText] = "\x1b[90m",                   // Bright black (gray)
+            [ConsoleThemeStyle.Invalid] = "\x1b[31;1m",                      // Red bold
+            [ConsoleThemeStyle.Null] = "\x1b[95m",                           // Bright magenta
+            [ConsoleThemeStyle.Name] = "\x1b[93m",                           // Bright yellow
+            [ConsoleThemeStyle.String] = "\x1b[96m",                         // Bright cyan
+            [ConsoleThemeStyle.Number] = "\x1b[95m",                         // Bright magenta
+            [ConsoleThemeStyle.Boolean] = "\x1b[95m",                        // Bright magenta
+            [ConsoleThemeStyle.Scalar] = "\x1b[95m",                         // Bright magenta
+            [ConsoleThemeStyle.LevelVerbose] = "\x1b[90m",                   // Bright black (gray)
+            [ConsoleThemeStyle.LevelDebug] = "\x1b[37m",                     // White
+            [ConsoleThemeStyle.LevelInformation] = "\x1b[36m",               // Cyan
+            [ConsoleThemeStyle.LevelWarning] = "\x1b[33;1m",                 // Bright yellow bold
+            [ConsoleThemeStyle.LevelError] = "\x1b[31;1m",                   // Red bold
+            [ConsoleThemeStyle.LevelFatal] = "\x1b[37;41;1m",                // White on red bold
+        });
+
+    /// <summary>
+    /// Default console output template with ANSI colors and structured readability.
+    /// </summary>
+    private const string DefaultConsoleTemplate =
+        "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}" +
+        "    └─ {SourceContext}{NewLine}{Exception}";
+
+    /// <summary>
+    /// Default file output template with full timestamps and machine-readable format.
+    /// </summary>
+    private const string DefaultFileTemplate =
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}";
+
+    /// <summary>
+    /// Default file path pattern for rolling logs.
+    /// </summary>
+    private const string DefaultLogPath = "logs/jcc-.log";
+
+    /// <summary>
+    /// Default number of days to retain log files.
+    /// </summary>
+    private const int DefaultRetainedFileCount = 7;
+
+    /// <summary>
+    /// Minimum allowed retention days.
+    /// </summary>
+    private const int MinRetentionDays = 1;
+
+    /// <summary>
+    /// Maximum allowed retention days.
+    /// </summary>
+    private const int MaxRetentionDays = 90;
 
     /// <summary>
     /// Creates a bootstrap logger for capturing early startup errors before configuration is fully loaded.
@@ -26,7 +156,12 @@ public static class SerilogConfiguration
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .Enrich.FromLogContext()
-            .WriteTo.Console(outputTemplate: DefaultOutputTemplate)
+            .Enrich.WithThreadId()
+            .Enrich.WithProcessId()
+            .Enrich.WithMachineName()
+            .WriteTo.Console(
+                theme: DefaultTheme,
+                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{MachineName}:{ThreadId}] {Message:lj}{NewLine}{Exception}")
             .CreateBootstrapLogger();
     }
 
@@ -49,6 +184,200 @@ public static class SerilogConfiguration
             .ConfigureSinks(configuration, environment);
 
         return loggerConfig;
+    }
+
+    /// <summary>
+    /// Configures Serilog from the provided configuration.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="applicationName">The application name for log context enrichment.</param>
+    /// <param name="environmentName">The environment name (Development, Production, etc.).</param>
+    /// <returns>A configured logger instance.</returns>
+    public static ILogger ConfigureSerilog(IConfiguration configuration, string? applicationName = null, string? environmentName = null)
+    {
+        var loggerConfiguration = new LoggerConfiguration()
+            .ReadFrom.Configuration(configuration);
+
+        // Configure enrichers for context and correlation
+        ConfigureEnrichers(loggerConfiguration, configuration, applicationName, environmentName);
+
+        // Configure minimum log level
+        var minimumLevel = GetMinimumLogLevel(configuration, environmentName);
+        loggerConfiguration.MinimumLevel.Is(minimumLevel);
+
+        // Apply namespace-specific overrides
+        ApplyLogLevelOverrides(loggerConfiguration, configuration);
+
+        // Configure sinks
+        ConfigureSinks(loggerConfiguration, configuration, environmentName);
+
+        return loggerConfiguration.CreateLogger();
+    }
+
+    /// <summary>
+    /// Configures all enrichers for structured logging context.
+    /// Includes standard Serilog enrichers and custom job context enrichment.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="applicationName">The application name for service identity.</param>
+    /// <param name="environmentName">The environment name (Development, Production, etc.).</param>
+    private static void ConfigureEnrichers(
+        LoggerConfiguration loggerConfiguration,
+        IConfiguration configuration,
+        string? applicationName,
+        string? environmentName)
+    {
+        // Enable log context for dynamic enrichment from scopes
+        loggerConfiguration.Enrich.FromLogContext();
+
+        // Standard Serilog enrichers
+        loggerConfiguration
+            .Enrich.WithThreadId()           // ThreadId for concurrent operation tracking
+            .Enrich.WithProcessId()          // ProcessId for multi-process scenarios
+            .Enrich.WithMachineName()        // MachineName for distributed systems
+            .Enrich.WithEnvironmentUserName(); // EnvironmentUserName for audit trails
+
+        // Custom job context enricher for correlation
+        loggerConfiguration.Enrich.With(new JobContextEnricher());
+
+        // Service identity properties
+        ConfigureServiceIdentity(loggerConfiguration, configuration, applicationName, environmentName);
+    }
+
+    /// <summary>
+    /// Configures service identity properties for log correlation and observability.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="applicationName">The application name.</param>
+    /// <param name="environmentName">The environment name.</param>
+    private static void ConfigureServiceIdentity(
+        LoggerConfiguration loggerConfiguration,
+        IConfiguration configuration,
+        string? applicationName,
+        string? environmentName)
+    {
+        // Service name - prioritize configuration, then parameter, then fallback
+        var serviceName = configuration["Service:Name"]
+            ?? configuration["ApplicationName"]
+            ?? applicationName
+            ?? "Unknown";
+
+        // Service version - try configuration, then assembly version
+        var serviceVersion = configuration["Service:Version"]
+            ?? GetAssemblyVersion();
+
+        // Environment name - try configuration, then parameter, then fallback
+        var envName = configuration["Environment"]
+            ?? configuration["ASPNETCORE_ENVIRONMENT"]
+            ?? environmentName
+            ?? "Unknown";
+
+        // Add service identity properties
+        loggerConfiguration
+            .Enrich.WithProperty("ServiceName", serviceName)
+            .Enrich.WithProperty("ServiceVersion", serviceVersion)
+            .Enrich.WithProperty("Environment", envName);
+
+        // Add MachineName as an explicit property (also available via enricher but useful for queries)
+        loggerConfiguration.Enrich.WithProperty("MachineName", Environment.MachineName);
+    }
+
+    /// <summary>
+    /// Gets the assembly version for service identity.
+    /// </summary>
+    /// <returns>The assembly version string or "Unknown" if not available.</returns>
+    private static string GetAssemblyVersion()
+    {
+        try
+        {
+            var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+            var version = assembly.GetName().Version;
+            return version?.ToString() ?? "Unknown";
+        }
+        catch
+        {
+            return "Unknown";
+        }
+    }
+
+    /// <summary>
+    /// Gets the minimum log level from configuration.
+    /// Defaults to Information if not specified.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="environmentName">The environment name for defaults.</param>
+    /// <returns>The configured minimum log event level.</returns>
+    private static LogEventLevel GetMinimumLogLevel(IConfiguration configuration, string? environmentName = null)
+    {
+        var minimumLevelString = configuration["Serilog:MinimumLevel:Default"]
+            ?? configuration["Serilog:MinimumLevel"]
+            ?? GetDefaultMinimumLevel(environmentName);
+
+        return ParseLogEventLevel(minimumLevelString);
+    }
+
+    /// <summary>
+    /// Gets the default minimum log level based on environment name.
+    /// </summary>
+    private static string GetDefaultMinimumLevel(string? environmentName)
+    {
+        return environmentName switch
+        {
+            "Development" => "Debug",
+            "Staging" => "Information",
+            "Production" => "Information",
+            _ => "Information"
+        };
+    }
+
+    /// <summary>
+    /// Applies log level overrides for specific namespaces from configuration.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    private static void ApplyLogLevelOverrides(LoggerConfiguration loggerConfiguration, IConfiguration configuration)
+    {
+        var overrideSection = configuration.GetSection("Serilog:MinimumLevel:Override");
+        if (overrideSection.Exists())
+        {
+            foreach (var overrideItem in overrideSection.GetChildren())
+            {
+                var namespaceName = overrideItem.Key;
+                var levelString = overrideItem.Value;
+                if (!string.IsNullOrEmpty(levelString))
+                {
+                    var level = ParseLogEventLevel(levelString);
+                    loggerConfiguration.MinimumLevel.Override(namespaceName, level);
+                }
+            }
+        }
+
+        // Apply default overrides for noisy namespaces
+        loggerConfiguration
+            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+            .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning);
+    }
+
+    /// <summary>
+    /// Parses a string to a LogEventLevel, defaulting to Information if parsing fails.
+    /// </summary>
+    /// <param name="levelString">The string representation of the log level.</param>
+    /// <returns>The parsed LogEventLevel.</returns>
+    private static LogEventLevel ParseLogEventLevel(string? levelString)
+    {
+        return levelString?.ToLowerInvariant() switch
+        {
+            "verbose" or "trace" => LogEventLevel.Verbose,
+            "debug" => LogEventLevel.Debug,
+            "information" or "info" => LogEventLevel.Information,
+            "warning" or "warn" => LogEventLevel.Warning,
+            "error" => LogEventLevel.Error,
+            "fatal" or "critical" => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information
+        };
     }
 
     /// <summary>
@@ -96,22 +425,319 @@ public static class SerilogConfiguration
         IConfiguration configuration,
         IHostEnvironment environment)
     {
-        // Always add console sink
-        loggerConfig.WriteTo.Console(
-            outputTemplate: DefaultOutputTemplate,
-            restrictedToMinimumLevel: GetConsoleMinimumLevel(environment));
+        // Configure console sink with ANSI theme
+        ConfigureConsoleSink(loggerConfig, configuration, environment);
 
-        // Add file sink with rolling files
-        var logFilePath = configuration["Serilog:WriteTo:File:Path"] ?? DefaultLogFilePath;
-        loggerConfig.WriteTo.File(
-            path: logFilePath,
-            rollingInterval: RollingInterval.Day,
-            retainedFileCountLimit: RetainedFileCount,
-            fileSizeLimitBytes: FileSizeLimitBytes,
-            rollOnFileSizeLimit: true,
-            outputTemplate: DefaultOutputTemplate);
+        // Configure file sink with rolling files
+        ConfigureFileSink(loggerConfig, configuration);
 
         return loggerConfig;
+    }
+
+    /// <summary>
+    /// Configures the output sinks based on configuration.
+    /// Console sink is always enabled with ANSI theme.
+    /// File sink is enabled by default but can be disabled via configuration.
+    /// OTLP sink is enabled when OTEL_EXPORTER_OTLP_ENDPOINT is configured.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="environmentName">The environment name.</param>
+    private static void ConfigureSinks(LoggerConfiguration loggerConfiguration, IConfiguration configuration, string? environmentName)
+    {
+        // Always add console sink with a reasonable format
+        var consoleTemplate = configuration["Serilog:WriteTo:0:Args:outputTemplate"]
+            ?? DefaultConsoleTemplate;
+        var theme = GetConsoleTheme(configuration);
+        var consoleMinimumLevel = environmentName == "Development" ? LogEventLevel.Debug : LogEventLevel.Information;
+        loggerConfiguration.WriteTo.Console(theme: theme, outputTemplate: consoleTemplate, restrictedToMinimumLevel: consoleMinimumLevel);
+
+        // Configure file sink (enabled by default, can be disabled)
+        ConfigureFileSink(loggerConfiguration, configuration);
+
+        // Configure OpenTelemetry OTLP sink (enabled when endpoint is configured)
+        ConfigureOpenTelemetrySink(loggerConfiguration, configuration);
+    }
+
+    /// <summary>
+    /// Configures the console sink with ANSI theme for colored output.
+    /// Console sink is always enabled for visibility during development and production.
+    /// </summary>
+    /// <param name="loggerConfig">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    /// <param name="environment">The hosting environment.</param>
+    private static void ConfigureConsoleSink(LoggerConfiguration loggerConfig, IConfiguration configuration, IHostEnvironment environment)
+    {
+        // Allow custom output template via configuration, otherwise use default
+        var consoleTemplate = configuration["Serilog:WriteTo:Console:outputTemplate"]
+            ?? configuration["Serilog:WriteTo:0:Args:outputTemplate"]
+            ?? DefaultConsoleTemplate;
+
+        // Determine theme: use configured theme name or default ANSI theme
+        var theme = GetConsoleTheme(configuration);
+
+        // Get minimum level for console based on environment
+        var consoleMinimumLevel = environment.IsDevelopment() ? LogEventLevel.Debug : LogEventLevel.Information;
+
+        loggerConfig.WriteTo.Console(
+            theme: theme,
+            outputTemplate: consoleTemplate,
+            restrictedToMinimumLevel: consoleMinimumLevel);
+    }
+
+    /// <summary>
+    /// Configures the file sink with daily rolling policy and retention.
+    /// Can be disabled via Serilog:WriteTo:File:Enabled = false or for containerized environments.
+    /// </summary>
+    /// <param name="loggerConfig">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    private static void ConfigureFileSink(LoggerConfiguration loggerConfig, IConfiguration configuration)
+    {
+        // Check if file sink is explicitly disabled
+        var fileSinkEnabled = GetFileSinkEnabled(configuration);
+        if (!fileSinkEnabled)
+        {
+            return;
+        }
+
+        // Get file path (default to logs/jcc-.log for daily rolling)
+        var filePath = configuration["Serilog:WriteTo:File:path"]
+            ?? configuration["Serilog:WriteTo:1:Args:path"]
+            ?? DefaultLogPath;
+
+        // Ensure logs directory exists
+        EnsureLogsDirectoryExists(filePath);
+
+        // Get rolling interval (default to daily)
+        var rollingInterval = GetRollingInterval(
+            configuration["Serilog:WriteTo:File:rollingInterval"]
+            ?? configuration["Serilog:WriteTo:1:Args:rollingInterval"]);
+
+        // Get retention policy with validation (default 7 days, min 1, max 90)
+        var retainedFileCount = GetRetainedFileCount(configuration);
+
+        // Get file output template
+        var fileTemplate = configuration["Serilog:WriteTo:File:outputTemplate"]
+            ?? configuration["Serilog:WriteTo:1:Args:outputTemplate"]
+            ?? DefaultFileTemplate;
+
+        // Configure shared flag for concurrent access
+        var shared = configuration.GetValue<bool?>("Serilog:WriteTo:File:shared")
+            ?? configuration.GetValue<bool?>("Serilog:WriteTo:1:Args:shared")
+            ?? true;
+
+        loggerConfig.WriteTo.File(
+            path: filePath,
+            outputTemplate: fileTemplate,
+            rollingInterval: rollingInterval,
+            retainedFileCountLimit: retainedFileCount,
+            fileSizeLimitBytes: FileSizeLimitBytes,
+            rollOnFileSizeLimit: true,
+            shared: shared,
+            flushToDiskInterval: TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>
+    /// Configures the OpenTelemetry OTLP sink for log export.
+    /// Enabled when OTEL_EXPORTER_OTLP_ENDPOINT is configured.
+    /// Logs include trace context for correlation with distributed traces.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    private static void ConfigureOpenTelemetrySink(LoggerConfiguration loggerConfiguration, IConfiguration configuration)
+    {
+        var otlpEndpoint = configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+            ?? configuration["OpenTelemetry:Otlp:Endpoint"];
+
+        if (string.IsNullOrEmpty(otlpEndpoint))
+        {
+            return;
+        }
+
+        // Get protocol configuration
+        var protocolString = configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
+            ?? configuration["OpenTelemetry:Otlp:Protocol"]
+            ?? "grpc";
+
+        var protocol = protocolString.ToLowerInvariant() switch
+        {
+            "http/protobuf" or "http" => OtlpProtocol.HttpProtobuf,
+            _ => OtlpProtocol.Grpc
+        };
+
+        // Build headers from configuration
+        var headers = GetOtlpHeadersForSerilog(configuration);
+
+        // Get service name for resource attributes
+        var serviceName = configuration["OTEL_SERVICE_NAME"]
+            ?? configuration["Service:Name"]
+            ?? "Unknown";
+
+        var serviceVersion = configuration["OTEL_SERVICE_VERSION"]
+            ?? configuration["Service:Version"]
+            ?? GetAssemblyVersion();
+
+        var serviceInstanceId = configuration["OTEL_SERVICE_INSTANCE_ID"]
+            ?? configuration["Service:InstanceId"]
+            ?? $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
+
+        var deploymentEnvironment = configuration["OTEL_DEPLOYMENT_ENVIRONMENT"]
+            ?? configuration["Deployment:Environment"]
+            ?? "Unknown";
+
+        // Configure OpenTelemetry sink with trace context inclusion
+        loggerConfiguration.WriteTo.OpenTelemetry(options =>
+        {
+            options.Endpoint = otlpEndpoint;
+            options.Protocol = protocol;
+
+            // Add headers if configured
+            foreach (var header in headers)
+            {
+                options.Headers.Add(header.Key, header.Value);
+            }
+
+            // Configure resource attributes for service identity
+            options.ResourceAttributes.Add("service.name", serviceName);
+            options.ResourceAttributes.Add("service.version", serviceVersion);
+            options.ResourceAttributes.Add("service.instance.id", serviceInstanceId);
+            options.ResourceAttributes.Add("deployment.environment", deploymentEnvironment);
+
+            // Trace context is automatically included by the sink for correlation
+        });
+    }
+
+    /// <summary>
+    /// Gets OTLP headers from configuration for Serilog sink.
+    /// Parses "OTEL_EXPORTER_OTLP_HEADERS" (format: key1=value1,key2=value2)
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <returns>A dictionary of headers.</returns>
+    private static Dictionary<string, string> GetOtlpHeadersForSerilog(IConfiguration configuration)
+    {
+        var headers = new Dictionary<string, string>();
+
+        var headersEnv = configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+            ?? configuration["OpenTelemetry:Otlp:Headers"];
+
+        if (!string.IsNullOrEmpty(headersEnv))
+        {
+            foreach (var pair in headersEnv.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var keyValue = pair.Split('=', 2, StringSplitOptions.TrimEntries);
+                if (keyValue.Length == 2)
+                {
+                    headers[keyValue[0]] = keyValue[1];
+                }
+            }
+        }
+
+        return headers;
+    }
+
+    /// <summary>
+    /// Gets the console theme based on configuration.
+    /// Supports "Ansi", "None", or defaults to custom ANSI theme.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <returns>The console theme to use.</returns>
+    private static AnsiConsoleTheme? GetConsoleTheme(IConfiguration configuration)
+    {
+        var themeName = configuration["Serilog:WriteTo:Console:theme"]
+            ?? configuration["Serilog:WriteTo:0:Args:theme"];
+
+        return themeName?.ToLowerInvariant() switch
+        {
+            "none" or "null" => null,
+            "code" => AnsiConsoleTheme.Code,
+            _ => DefaultTheme
+        };
+    }
+
+    /// <summary>
+    /// Determines if file sink is enabled based on configuration and environment.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <returns>True if file sink should be enabled, false otherwise.</returns>
+    private static bool GetFileSinkEnabled(IConfiguration configuration)
+    {
+        // Check explicit enable/disable setting
+        var enabled = configuration.GetValue<bool?>("Serilog:WriteTo:File:enabled")
+            ?? configuration.GetValue<bool?>("Serilog:WriteTo:1:Args:enabled");
+
+        if (enabled.HasValue)
+        {
+            return enabled.Value;
+        }
+
+        // Check for containerized environment indicator
+        var isContainerized = configuration.GetValue<bool?>("DOTNET_RUNNING_IN_CONTAINER")
+            ?? configuration.GetValue<bool?>("Containerized");
+
+        // In containerized environments, file sink can be disabled by default
+        // unless explicitly enabled
+        if (isContainerized == true)
+        {
+            return configuration.GetValue<bool>("Serilog:WriteTo:File:enableInContainer", false);
+        }
+
+        // Default: file sink is enabled
+        return true;
+    }
+
+    /// <summary>
+    /// Gets the retained file count from configuration with validation.
+    /// Default: 7 days, Minimum: 1 day, Maximum: 90 days.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <returns>The validated retention count.</returns>
+    private static int GetRetainedFileCount(IConfiguration configuration)
+    {
+        var retainedDays = configuration.GetValue<int?>("Serilog:WriteTo:File:retainedFileCountLimit")
+            ?? configuration.GetValue<int?>("Serilog:WriteTo:1:Args:retainedFileCountLimit")
+            ?? DefaultRetainedFileCount;
+
+        // Clamp to valid range
+        return Math.Clamp(retainedDays, MinRetentionDays, MaxRetentionDays);
+    }
+
+    /// <summary>
+    /// Gets the rolling interval from a string value.
+    /// </summary>
+    /// <param name="intervalString">The string representation of the rolling interval.</param>
+    /// <returns>The RollingInterval value.</returns>
+    private static RollingInterval GetRollingInterval(string? intervalString)
+    {
+        return intervalString?.ToLowerInvariant() switch
+        {
+            "minute" => RollingInterval.Minute,
+            "hour" => RollingInterval.Hour,
+            "month" => RollingInterval.Month,
+            "year" => RollingInterval.Year,
+            _ => RollingInterval.Day
+        };
+    }
+
+    /// <summary>
+    /// Ensures the logs directory exists for the given file path.
+    /// </summary>
+    /// <param name="filePath">The log file path (may contain rolling pattern).</param>
+    private static void EnsureLogsDirectoryExists(string filePath)
+    {
+        try
+        {
+            // Extract directory from path (handle rolling patterns like logs/jcc-.log)
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // Log directory creation failed - this will be caught by Serilog later
+            // Don't throw here as it would prevent the entire application from starting
+        }
     }
 
     /// <summary>
