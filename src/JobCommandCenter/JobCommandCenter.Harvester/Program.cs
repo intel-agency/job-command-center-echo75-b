@@ -5,6 +5,7 @@ using JobCommandCenter.Harvester.Workers;
 using JobCommandCenter.Shared.Models;
 using JobCommandCenter.Shared.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Playwright;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -35,6 +36,12 @@ builder.Services.AddSingleton<ChromeCdpOptions>(sp =>
     builder.Configuration.GetSection("ChromeCdp").Bind(options);
     return options;
 });
+
+// Register Playwright as singleton (created async at startup)
+builder.Services.AddSingleton<IPlaywright>(sp => Playwright.CreateAsync().GetAwaiter().GetResult());
+
+// Register CDP connection factory
+builder.Services.AddSingleton<ICdpConnectionFactory, CdpConnectionFactory>();
 
 // Register Chrome validator
 builder.Services.AddHttpClient<IChromeValidator, ChromeValidator>();

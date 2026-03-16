@@ -13,5 +13,5 @@ public class ChromeCdpOptions
     /// <summary>
     /// Connection timeout in seconds.
     /// </summary>
-    public int ConnectionTimeoutSeconds { get; set; } = 5;
+    public int ConnectionTimeoutSeconds { get; set; } = 30;
 }
