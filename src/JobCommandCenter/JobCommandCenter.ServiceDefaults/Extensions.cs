@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,8 @@ using Microsoft.Extensions.ServiceDiscovery;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Serilog;
+using Serilog.Events;
 
 namespace Microsoft.Extensions.Hosting;
 
@@ -20,6 +23,9 @@ public static class Extensions
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        // Configure Serilog for structured logging
+        builder.ConfigureSerilog();
+
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();
@@ -40,6 +46,28 @@ public static class Extensions
         // {
         //     options.AllowedSchemes = ["https"];
         // });
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Configures Serilog as the logging provider with environment-aware settings.
+    /// </summary>
+    /// <typeparam name="TBuilder">The type of the host application builder.</typeparam>
+    /// <param name="builder">The host application builder.</param>
+    /// <returns>The builder for chaining.</returns>
+    public static TBuilder ConfigureSerilog<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        builder.Services.AddSerilog((services, loggerConfiguration) =>
+        {
+            loggerConfiguration
+                .ReadFrom.Services(services)
+                .Enrich.FromLogContext()
+                .Enrich.WithMachineName()
+                .Enrich.WithThreadId()
+                .ConfigureMinimumLevelFromConfiguration(builder.Configuration, builder.Environment)
+                .ConfigureSinksFromConfiguration(builder.Configuration, builder.Environment);
+        });
 
         return builder;
     }
@@ -124,4 +152,89 @@ public static class Extensions
 
         return app;
     }
+
+    #region Serilog Configuration Helpers
+
+    private const string DefaultSerilogOutputTemplate = "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}";
+    private const string DefaultLogFilePath = "logs/jcc-.log";
+    private const int RetainedFileCountLimit = 31;
+    private const long FileSizeLimitBytes = 10 * 1024 * 1024; // 10 MB
+
+    /// <summary>
+    /// Configures the minimum log level from configuration with environment-aware defaults.
+    /// </summary>
+    private static LoggerConfiguration ConfigureMinimumLevelFromConfiguration(
+        this LoggerConfiguration loggerConfig,
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        // Try to get minimum level from configuration first
+        var configuredLevel = configuration["Serilog:MinimumLevel:Default"];
+
+        var minimumLevel = configuredLevel switch
+        {
+            "Verbose" => LogEventLevel.Verbose,
+            "Debug" => LogEventLevel.Debug,
+            "Information" => LogEventLevel.Information,
+            "Warning" => LogEventLevel.Warning,
+            "Error" => LogEventLevel.Error,
+            "Fatal" => LogEventLevel.Fatal,
+            _ => GetDefaultMinimumLevel(environment)
+        };
+
+        return loggerConfig
+            .MinimumLevel.Is(minimumLevel)
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+            .MinimumLevel.Override("System", LogEventLevel.Warning);
+    }
+
+    /// <summary>
+    /// Gets the default minimum log level based on the hosting environment.
+    /// </summary>
+    private static LogEventLevel GetDefaultMinimumLevel(IHostEnvironment environment)
+    {
+        return environment.EnvironmentName switch
+        {
+            "Development" => LogEventLevel.Debug,
+            "Staging" => LogEventLevel.Information,
+            "Production" => LogEventLevel.Information,
+            _ => LogEventLevel.Information
+        };
+    }
+
+    /// <summary>
+    /// Configures Serilog sinks from configuration with sensible defaults.
+    /// </summary>
+    private static LoggerConfiguration ConfigureSinksFromConfiguration(
+        this LoggerConfiguration loggerConfig,
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        // Console sink - always enabled
+        var consoleMinimumLevel = environment.IsDevelopment()
+            ? LogEventLevel.Debug
+            : LogEventLevel.Information;
+
+        loggerConfig.WriteTo.Console(
+            outputTemplate: DefaultSerilogOutputTemplate,
+            restrictedToMinimumLevel: consoleMinimumLevel);
+
+        // File sink - with rolling files
+        var logFilePath = configuration["Serilog:WriteTo:1:Args:path"]
+            ?? configuration["Serilog:File:Path"]
+            ?? DefaultLogFilePath;
+
+        loggerConfig.WriteTo.File(
+            path: logFilePath,
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: RetainedFileCountLimit,
+            fileSizeLimitBytes: FileSizeLimitBytes,
+            rollOnFileSizeLimit: true,
+            outputTemplate: DefaultSerilogOutputTemplate);
+
+        return loggerConfig;
+    }
+
+    #endregion
 }
