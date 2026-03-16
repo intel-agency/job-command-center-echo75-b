@@ -3,6 +3,7 @@ using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using Serilog.Events;
+using Serilog.Sinks.OpenTelemetry;
 using Serilog.Sinks.SystemConsole.Themes;
 
 namespace Microsoft.Extensions.Hosting;
@@ -366,6 +367,9 @@ public static class SerilogConfiguration
 
     /// <summary>
     /// Configures the output sinks based on configuration.
+    /// Console sink is always enabled with ANSI theme.
+    /// File sink is enabled by default but can be disabled via configuration.
+    /// OTLP sink is enabled when OTEL_EXPORTER_OTLP_ENDPOINT is configured.
     /// </summary>
     /// <param name="loggerConfiguration">The logger configuration builder.</param>
     /// <param name="configuration">The application configuration.</param>
@@ -379,20 +383,11 @@ public static class SerilogConfiguration
         var consoleMinimumLevel = environmentName == "Development" ? LogEventLevel.Debug : LogEventLevel.Information;
         loggerConfiguration.WriteTo.Console(theme: theme, outputTemplate: consoleTemplate, restrictedToMinimumLevel: consoleMinimumLevel);
 
-        // Add file sink if configured
-        var filePath = configuration["Serilog:WriteTo:1:Args:path"];
-        if (!string.IsNullOrEmpty(filePath))
-        {
-            var rollingInterval = GetRollingInterval(configuration["Serilog:WriteTo:1:Args:rollingInterval"]);
-            var fileTemplate = configuration["Serilog:WriteTo:1:Args:outputTemplate"]
-                ?? DefaultFileTemplate;
+        // Configure file sink (enabled by default, can be disabled)
+        ConfigureFileSink(loggerConfiguration, configuration);
 
-            loggerConfiguration.WriteTo.File(
-                path: filePath,
-                outputTemplate: fileTemplate,
-                rollingInterval: rollingInterval,
-                retainedFileCountLimit: 31);
-        }
+        // Configure OpenTelemetry OTLP sink (enabled when endpoint is configured)
+        ConfigureOpenTelemetrySink(loggerConfiguration, configuration);
     }
 
     /// <summary>
@@ -471,6 +466,104 @@ public static class SerilogConfiguration
             rollOnFileSizeLimit: true,
             shared: shared,
             flushToDiskInterval: TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>
+    /// Configures the OpenTelemetry OTLP sink for log export.
+    /// Enabled when OTEL_EXPORTER_OTLP_ENDPOINT is configured.
+    /// Logs include trace context for correlation with distributed traces.
+    /// </summary>
+    /// <param name="loggerConfiguration">The logger configuration builder.</param>
+    /// <param name="configuration">The application configuration.</param>
+    private static void ConfigureOpenTelemetrySink(LoggerConfiguration loggerConfiguration, IConfiguration configuration)
+    {
+        var otlpEndpoint = configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+            ?? configuration["OpenTelemetry:Otlp:Endpoint"];
+
+        if (string.IsNullOrEmpty(otlpEndpoint))
+        {
+            return;
+        }
+
+        // Get protocol configuration
+        var protocolString = configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
+            ?? configuration["OpenTelemetry:Otlp:Protocol"]
+            ?? "grpc";
+
+        var protocol = protocolString.ToLowerInvariant() switch
+        {
+            "http/protobuf" or "http" => OtlpProtocol.HttpProtobuf,
+            _ => OtlpProtocol.Grpc
+        };
+
+        // Build headers from configuration
+        var headers = GetOtlpHeadersForSerilog(configuration);
+
+        // Get service name for resource attributes
+        var serviceName = configuration["OTEL_SERVICE_NAME"]
+            ?? configuration["Service:Name"]
+            ?? "Unknown";
+
+        var serviceVersion = configuration["OTEL_SERVICE_VERSION"]
+            ?? configuration["Service:Version"]
+            ?? GetAssemblyVersion();
+
+        var serviceInstanceId = configuration["OTEL_SERVICE_INSTANCE_ID"]
+            ?? configuration["Service:InstanceId"]
+            ?? $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
+
+        var deploymentEnvironment = configuration["OTEL_DEPLOYMENT_ENVIRONMENT"]
+            ?? configuration["Deployment:Environment"]
+            ?? "Unknown";
+
+        // Configure OpenTelemetry sink with trace context inclusion
+        loggerConfiguration.WriteTo.OpenTelemetry(options =>
+        {
+            options.Endpoint = otlpEndpoint;
+            options.Protocol = protocol;
+
+            // Add headers if configured
+            foreach (var header in headers)
+            {
+                options.Headers.Add(header.Key, header.Value);
+            }
+
+            // Configure resource attributes for service identity
+            options.ResourceAttributes.Add("service.name", serviceName);
+            options.ResourceAttributes.Add("service.version", serviceVersion);
+            options.ResourceAttributes.Add("service.instance.id", serviceInstanceId);
+            options.ResourceAttributes.Add("deployment.environment", deploymentEnvironment);
+
+            // Trace context is automatically included by the sink for correlation
+        });
+    }
+
+    /// <summary>
+    /// Gets OTLP headers from configuration for Serilog sink.
+    /// Parses "OTEL_EXPORTER_OTLP_HEADERS" (format: key1=value1,key2=value2)
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <returns>A dictionary of headers.</returns>
+    private static Dictionary<string, string> GetOtlpHeadersForSerilog(IConfiguration configuration)
+    {
+        var headers = new Dictionary<string, string>();
+
+        var headersEnv = configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+            ?? configuration["OpenTelemetry:Otlp:Headers"];
+
+        if (!string.IsNullOrEmpty(headersEnv))
+        {
+            foreach (var pair in headersEnv.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var keyValue = pair.Split('=', 2, StringSplitOptions.TrimEntries);
+                if (keyValue.Length == 2)
+                {
+                    headers[keyValue[0]] = keyValue[1];
+                }
+            }
+        }
+
+        return headers;
     }
 
     /// <summary>
