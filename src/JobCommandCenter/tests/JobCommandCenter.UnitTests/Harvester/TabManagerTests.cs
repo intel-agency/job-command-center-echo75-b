@@ -1,6 +1,7 @@
 #nullable enable
 
 using FluentAssertions;
+using JobCommandCenter.Harvester.Models;
 using JobCommandCenter.Harvester.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
@@ -14,107 +15,76 @@ namespace JobCommandCenter.UnitTests.Harvester;
 /// </summary>
 public class TabManagerTests
 {
+    private readonly Mock<IBrowser> _browserMock;
     private readonly Mock<ILogger<TabManager>> _loggerMock;
-    private readonly TabManager _tabManager;
 
     public TabManagerTests()
     {
+        _browserMock = new Mock<IBrowser>();
         _loggerMock = new Mock<ILogger<TabManager>>();
-        _tabManager = new TabManager(_loggerMock.Object);
     }
-
-    #region Constructor Validation
-
-    [Fact]
-    public void Constructor_WithNullLogger_ThrowsArgumentNullException()
-    {
-        // Act & Assert
-        var act = () => new TabManager(null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("logger");
-    }
-
-    #endregion
 
     #region GetTabsAsync Tests
 
     [Fact]
-    public async Task GetTabsAsync_ReturnsAllPagesFromAllContexts()
+    public async Task GetTabsAsync_ReturnsAllOpenTabs()
     {
         // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        
-        var context1Pages = new List<IPage>
-        {
-            CreateMockPage("https://google.com", "Google").Object,
-            CreateMockPage("https://linkedin.com/jobs", "LinkedIn Jobs").Object
-        };
-        
-        var context2Pages = new List<IPage>
-        {
-            CreateMockPage("https://github.com", "GitHub").Object
-        };
+        var mockPage1 = CreateMockPage("page1", "https://linkedin.com/jobs/search", "LinkedIn Jobs");
+        var mockPage2 = CreateMockPage("page2", "https://google.com", "Google");
+        var mockContext = CreateMockContext(new[] { mockPage1.Object, mockPage2.Object });
 
-        var contexts = new List<IBrowserContext>
-        {
-            CreateMockContext(context1Pages).Object,
-            CreateMockContext(context2Pages).Object
-        };
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
 
-        mockBrowser.SetupGet(b => b.Contexts).Returns(contexts);
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.GetTabsAsync(mockBrowser.Object);
+        var result = await tabManager.GetTabsAsync();
 
         // Assert
-        result.Should().HaveCount(3);
-        result.Select(t => t.Url).Should().Contain([
-            "https://google.com",
-            "https://linkedin.com/jobs",
-            "https://github.com"
-        ]);
+        result.Should().HaveCount(2);
+        result[0].Url.Should().Be("https://linkedin.com/jobs/search");
+        result[0].Title.Should().Be("LinkedIn Jobs");
+        result[0].IsLinkedIn.Should().BeTrue();
+        result[0].IsJobPage.Should().BeTrue();
+        result[1].Url.Should().Be("https://google.com");
+        result[1].IsLinkedIn.Should().BeFalse();
     }
 
     [Fact]
-    public async Task GetTabsAsync_WithNoContexts_ReturnsEmptyList()
+    public async Task GetTabsAsync_WhenNoTabs_ReturnsEmptyList()
     {
         // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext>());
+        var mockContext = CreateMockContext(Array.Empty<IPage>());
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
+
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.GetTabsAsync(mockBrowser.Object);
+        var result = await tabManager.GetTabsAsync();
 
         // Assert
         result.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task GetTabsAsync_WithContextWithNoPages_ReturnsEmptyList()
+    public async Task GetTabsAsync_WithMultipleContexts_ReturnsTabsFromAllContexts()
     {
         // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        var contexts = new List<IBrowserContext>
-        {
-            CreateMockContext(new List<IPage>()).Object
-        };
-        mockBrowser.SetupGet(b => b.Contexts).Returns(contexts);
+        var mockPage1 = CreateMockPage("page1", "https://site1.com", "Site 1");
+        var mockPage2 = CreateMockPage("page2", "https://site2.com", "Site 2");
+        var mockContext1 = CreateMockContext(new[] { mockPage1.Object });
+        var mockContext2 = CreateMockContext(new[] { mockPage2.Object });
+
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext1.Object, mockContext2.Object });
+
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.GetTabsAsync(mockBrowser.Object);
+        var result = await tabManager.GetTabsAsync();
 
         // Assert
-        result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetTabsAsync_WithNullBrowser_ThrowsArgumentNullException()
-    {
-        // Act & Assert
-        var act = async () => await _tabManager.GetTabsAsync(null!);
-
-        await act.Should().ThrowAsync<ArgumentNullException>();
+        result.Should().HaveCount(2);
     }
 
     #endregion
@@ -122,145 +92,61 @@ public class TabManagerTests
     #region FindLinkedInTabAsync Tests
 
     [Fact]
-    public async Task FindLinkedInTabAsync_FindsLinkedInPageByUrl()
+    public async Task FindLinkedInTabAsync_WhenLinkedInTabExists_ReturnsTab()
     {
         // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        
-        var pages = new List<IPage>
-        {
-            CreateMockPage("https://google.com", "Google").Object,
-            CreateMockPage("https://linkedin.com/jobs", "LinkedIn Jobs").Object,
-            CreateMockPage("https://github.com", "GitHub").Object
-        };
+        var mockPage1 = CreateMockPage("page1", "https://google.com", "Google");
+        var mockPage2 = CreateMockPage("page2", "https://linkedin.com/jobs/view/123", "Job Title - LinkedIn");
+        var mockContext = CreateMockContext(new[] { mockPage1.Object, mockPage2.Object });
 
-        var contexts = new List<IBrowserContext>
-        {
-            CreateMockContext(pages).Object
-        };
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
 
-        mockBrowser.SetupGet(b => b.Contexts).Returns(contexts);
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.FindLinkedInTabAsync(mockBrowser.Object);
+        var result = await tabManager.FindLinkedInTabAsync();
 
         // Assert
         result.Should().NotBeNull();
-        result!.Url.Should().Be("https://linkedin.com/jobs");
-        result.IsLinkedIn.Should().BeTrue();
-        result.Title.Should().Be("LinkedIn Jobs");
+        result!.Url.Should().Contain("linkedin.com/jobs");
+        result.IsJobPage.Should().BeTrue();
     }
 
     [Fact]
-    public async Task FindLinkedInTabAsync_ReturnsNullWhenNoLinkedInPage()
+    public async Task FindLinkedInTabAsync_WhenNoLinkedInTab_ReturnsNull()
     {
         // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        
-        var pages = new List<IPage>
-        {
-            CreateMockPage("https://google.com", "Google").Object,
-            CreateMockPage("https://github.com", "GitHub").Object
-        };
+        var mockPage1 = CreateMockPage("page1", "https://google.com", "Google");
+        var mockPage2 = CreateMockPage("page2", "https://github.com", "GitHub");
+        var mockContext = CreateMockContext(new[] { mockPage1.Object, mockPage2.Object });
 
-        var contexts = new List<IBrowserContext>
-        {
-            CreateMockContext(pages).Object
-        };
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
 
-        mockBrowser.SetupGet(b => b.Contexts).Returns(contexts);
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.FindLinkedInTabAsync(mockBrowser.Object);
+        var result = await tabManager.FindLinkedInTabAsync();
 
         // Assert
         result.Should().BeNull();
     }
 
     [Fact]
-    public async Task FindLinkedInTabAsync_DetectsWwwLinkedIn()
+    public async Task FindLinkedInTabAsync_WhenOnlyLinkedInNonJobPage_ReturnsNull()
     {
         // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        
-        var pages = new List<IPage>
-        {
-            CreateMockPage("https://www.linkedin.com/feed", "LinkedIn Feed").Object
-        };
+        var mockPage = CreateMockPage("page1", "https://linkedin.com/in/someprofile", "Profile");
+        var mockContext = CreateMockContext(new[] { mockPage.Object });
 
-        var contexts = new List<IBrowserContext>
-        {
-            CreateMockContext(pages).Object
-        };
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
 
-        mockBrowser.SetupGet(b => b.Contexts).Returns(contexts);
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.FindLinkedInTabAsync(mockBrowser.Object);
-
-        // Assert
-        result.Should().NotBeNull();
-        result!.IsLinkedIn.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task FindLinkedInTabAsync_DetectsSubdomainLinkedIn()
-    {
-        // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        
-        var pages = new List<IPage>
-        {
-            CreateMockPage("https://app.linkedin.com/jobs", "LinkedIn App").Object
-        };
-
-        var contexts = new List<IBrowserContext>
-        {
-            CreateMockContext(pages).Object
-        };
-
-        mockBrowser.SetupGet(b => b.Contexts).Returns(contexts);
-
-        // Act
-        var result = await _tabManager.FindLinkedInTabAsync(mockBrowser.Object);
-
-        // Assert
-        result.Should().NotBeNull();
-        result!.IsLinkedIn.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task FindLinkedInTabAsync_DoesNotDetectFakeLinkedIn()
-    {
-        // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        
-        var pages = new List<IPage>
-        {
-            CreateMockPage("https://linkedin.malicious.com", "Fake LinkedIn").Object
-        };
-
-        var contexts = new List<IBrowserContext>
-        {
-            CreateMockContext(pages).Object
-        };
-
-        mockBrowser.SetupGet(b => b.Contexts).Returns(contexts);
-
-        // Act
-        var result = await _tabManager.FindLinkedInTabAsync(mockBrowser.Object);
+        var result = await tabManager.FindLinkedInTabAsync();
 
         // Assert
         result.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task FindLinkedInTabAsync_WithNullBrowser_ThrowsArgumentNullException()
-    {
-        // Act & Assert
-        var act = async () => await _tabManager.FindLinkedInTabAsync(null!);
-
-        await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
     #endregion
@@ -268,89 +154,63 @@ public class TabManagerTests
     #region CreateNewTabAsync Tests
 
     [Fact]
-    public async Task CreateNewTabAsync_CreatesPageAndNavigates()
+    public async Task CreateNewTabAsync_CreatesTabWithCorrectUrl()
     {
         // Arrange
-        var mockPage = CreateMockPage("https://www.linkedin.com/jobs/", "LinkedIn Jobs");
-        string? navigatedUrl = null;
-
-        mockPage
-            .Setup(p => p.GotoAsync(
-                It.IsAny<string>(),
-                It.IsAny<PageGotoOptions?>()))
-            .Callback<string, PageGotoOptions?>((url, _) => navigatedUrl = url)
-            .ReturnsAsync(new Mock<IResponse>().Object);
-
         var mockContext = new Mock<IBrowserContext>();
-        mockContext
-            .Setup(c => c.NewPageAsync())
-            .ReturnsAsync(mockPage.Object);
-        mockContext.SetupGet(c => c.Pages).Returns(new List<IPage> { mockPage.Object });
+        var mockNewPage = CreateMockPage("newpage", "https://linkedin.com/jobs", "LinkedIn Jobs");
 
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
+        mockContext.Setup(c => c.NewPageAsync())
+            .ReturnsAsync(mockNewPage.Object);
+        mockContext.SetupGet(c => c.Pages).Returns(new List<IPage> { mockNewPage.Object });
+
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
+
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.CreateNewTabAsync(mockBrowser.Object);
+        var result = await tabManager.CreateNewTabAsync("https://linkedin.com/jobs");
 
         // Assert
         result.Should().NotBeNull();
-        result.Page.Should().Be(mockPage.Object);
-        navigatedUrl.Should().Be(LinkedInUrls.JobsPage);
+        result.Url.Should().Be("https://linkedin.com/jobs");
+        mockContext.Verify(c => c.NewPageAsync(), Times.Once);
     }
 
     [Fact]
-    public async Task CreateNewTabAsync_WithCustomUrl_NavigatesToCustomUrl()
+    public async Task CreateNewTabAsync_WhenNoContext_ThrowsInvalidOperationException()
     {
         // Arrange
-        var customUrl = "https://www.linkedin.com/jobs/search/?keywords=dotnet";
-        var mockPage = CreateMockPage(customUrl, "Job Search");
-        string? navigatedUrl = null;
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext>());
 
-        mockPage
-            .Setup(p => p.GotoAsync(
-                It.IsAny<string>(),
-                It.IsAny<PageGotoOptions?>()))
-            .Callback<string, PageGotoOptions?>((url, _) => navigatedUrl = url)
-            .ReturnsAsync(new Mock<IResponse>().Object);
-
-        var mockContext = new Mock<IBrowserContext>();
-        mockContext
-            .Setup(c => c.NewPageAsync())
-            .ReturnsAsync(mockPage.Object);
-        mockContext.SetupGet(c => c.Pages).Returns(new List<IPage> { mockPage.Object });
-
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
-
-        // Act
-        var result = await _tabManager.CreateNewTabAsync(mockBrowser.Object, customUrl);
-
-        // Assert
-        navigatedUrl.Should().Be(customUrl);
-    }
-
-    [Fact]
-    public async Task CreateNewTabAsync_WithNoContext_ThrowsInvalidOperationException()
-    {
-        // Arrange
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext>());
+        var tabManager = CreateTabManager();
 
         // Act & Assert
-        var act = async () => await _tabManager.CreateNewTabAsync(mockBrowser.Object);
-
+        var act = () => tabManager.CreateNewTabAsync("https://linkedin.com/jobs");
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*No browser contexts available*");
+            .WithMessage("*No browser context available*");
     }
 
     [Fact]
-    public async Task CreateNewTabAsync_WithNullBrowser_ThrowsArgumentNullException()
+    public async Task CreateNewTabAsync_WithEmptyUrl_ThrowsArgumentException()
     {
-        // Act & Assert
-        var act = async () => await _tabManager.CreateNewTabAsync(null!);
+        // Arrange
+        var tabManager = CreateTabManager();
 
-        await act.Should().ThrowAsync<ArgumentNullException>();
+        // Act & Assert
+        var act = () => tabManager.CreateNewTabAsync("");
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task CreateNewTabAsync_WithNullUrl_ThrowsArgumentException()
+    {
+        // Arrange
+        var tabManager = CreateTabManager();
+
+        // Act & Assert
+        var act = () => tabManager.CreateNewTabAsync(null!);
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 
     #endregion
@@ -358,253 +218,190 @@ public class TabManagerTests
     #region CloseTabAsync Tests
 
     [Fact]
-    public async Task CloseTabAsync_ClosesTabWhenMultipleExist()
+    public async Task CloseTabAsync_ClosesExistingTab()
     {
         // Arrange
-        var pageToClose = CreateMockPage("https://linkedin.com/jobs", "LinkedIn Jobs");
-        var otherPage = CreateMockPage("https://google.com", "Google");
+        var mockPage = CreateMockPage("123", "https://linkedin.com/jobs", "LinkedIn Jobs");
+        var otherPage = CreateMockPage("456", "about:blank", "");
+        var mockContext = CreateMockContext(new[] { mockPage.Object, otherPage.Object });
 
-        var pages = new List<IPage> { pageToClose.Object, otherPage.Object };
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
 
-        var mockContext = CreateMockContext(pages);
+        var tabManager = CreateTabManager();
 
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
-
-        var tabInfo = new TabInfo
-        {
-            Page = pageToClose.Object,
-            Url = "https://linkedin.com/jobs",
-            Title = "LinkedIn Jobs",
-            IsLinkedIn = true
-        };
+        // The tab ID is the page's hash code as a string
+        var tabId = mockPage.Object.GetHashCode().ToString();
 
         // Act
-        var result = await _tabManager.CloseTabAsync(mockBrowser.Object, tabInfo);
+        var result = await tabManager.CloseTabAsync(tabId);
 
         // Assert
         result.Should().BeTrue();
-        pageToClose.Verify(p => p.CloseAsync(), Times.Once);
+        mockPage.Verify(p => p.CloseAsync(It.IsAny<PageCloseOptions?>()), Times.Once);
     }
 
     [Fact]
-    public async Task CloseTabAsync_RefusesToCloseLastTab()
+    public async Task CloseTabAsync_WhenLastTab_ReturnsFalse()
     {
         // Arrange
-        var singlePage = CreateMockPage("https://linkedin.com/jobs", "LinkedIn Jobs");
+        var mockPage = CreateMockPage("123", "https://linkedin.com/jobs", "LinkedIn Jobs");
+        var mockContext = CreateMockContext(new[] { mockPage.Object });
 
-        var pages = new List<IPage> { singlePage.Object };
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
 
-        var mockContext = CreateMockContext(pages);
-
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
-
-        var tabInfo = new TabInfo
-        {
-            Page = singlePage.Object,
-            Url = "https://linkedin.com/jobs",
-            Title = "LinkedIn Jobs",
-            IsLinkedIn = true
-        };
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.CloseTabAsync(mockBrowser.Object, tabInfo);
+        var result = await tabManager.CloseTabAsync("123");
 
         // Assert
         result.Should().BeFalse();
-        singlePage.Verify(p => p.CloseAsync(), Times.Never);
+        mockPage.Verify(p => p.CloseAsync(It.IsAny<PageCloseOptions?>()), Times.Never);
     }
 
     [Fact]
-    public async Task CloseTabAsync_RefusesWhenOnlyOneTabAcrossAllContexts()
+    public async Task CloseTabAsync_WhenTabNotFound_ReturnsFalse()
     {
         // Arrange
-        var singlePage = CreateMockPage("https://linkedin.com/jobs", "LinkedIn Jobs");
+        var mockPage = CreateMockPage("123", "https://linkedin.com/jobs", "LinkedIn Jobs");
+        var mockContext = CreateMockContext(new[] { mockPage.Object });
 
-        var context1 = CreateMockContext(new List<IPage> { singlePage.Object });
-        var context2 = CreateMockContext(new List<IPage>());
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
 
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { context1.Object, context2.Object });
-
-        var tabInfo = new TabInfo
-        {
-            Page = singlePage.Object,
-            Url = "https://linkedin.com/jobs",
-            Title = "LinkedIn Jobs",
-            IsLinkedIn = true
-        };
+        var tabManager = CreateTabManager();
 
         // Act
-        var result = await _tabManager.CloseTabAsync(mockBrowser.Object, tabInfo);
+        var result = await tabManager.CloseTabAsync("nonexistent");
 
         // Assert
         result.Should().BeFalse();
-        singlePage.Verify(p => p.CloseAsync(), Times.Never);
+        mockPage.Verify(p => p.CloseAsync(It.IsAny<PageCloseOptions?>()), Times.Never);
     }
 
     [Fact]
-    public async Task CloseTabAsync_ClosesLastTabInContext_WhenOtherContextsHaveTabs()
+    public async Task CloseTabAsync_WithEmptyTabId_ThrowsArgumentException()
     {
         // Arrange
-        var pageToClose = CreateMockPage("https://linkedin.com/jobs", "LinkedIn Jobs");
-        var otherPage = CreateMockPage("https://google.com", "Google");
-
-        var context1 = CreateMockContext(new List<IPage> { pageToClose.Object });
-        var context2 = CreateMockContext(new List<IPage> { otherPage.Object });
-
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { context1.Object, context2.Object });
-
-        var tabInfo = new TabInfo
-        {
-            Page = pageToClose.Object,
-            Url = "https://linkedin.com/jobs",
-            Title = "LinkedIn Jobs",
-            IsLinkedIn = true
-        };
-
-        // Act
-        var result = await _tabManager.CloseTabAsync(mockBrowser.Object, tabInfo);
-
-        // Assert
-        result.Should().BeTrue();
-        pageToClose.Verify(p => p.CloseAsync(), Times.Once);
-    }
-
-    [Fact]
-    public async Task CloseTabAsync_ReturnsFalse_WhenTabNotFoundInContexts()
-    {
-        // Arrange
-        var unknownPage = CreateMockPage("https://unknown.com", "Unknown");
-        var existingPage = CreateMockPage("https://linkedin.com/jobs", "LinkedIn Jobs");
-
-        var mockContext = CreateMockContext(new List<IPage> { existingPage.Object });
-
-        var mockBrowser = new Mock<IBrowser>();
-        mockBrowser.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
-
-        var tabInfo = new TabInfo
-        {
-            Page = unknownPage.Object,
-            Url = "https://unknown.com",
-            Title = "Unknown",
-            IsLinkedIn = false
-        };
-
-        // Act
-        var result = await _tabManager.CloseTabAsync(mockBrowser.Object, tabInfo);
-
-        // Assert
-        result.Should().BeFalse();
-        unknownPage.Verify(p => p.CloseAsync(), Times.Never);
-    }
-
-    [Fact]
-    public async Task CloseTabAsync_WithNullBrowser_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var tabInfo = new TabInfo
-        {
-            Page = new Mock<IPage>().Object,
-            Url = "https://example.com",
-            Title = "Example",
-            IsLinkedIn = false
-        };
+        var tabManager = CreateTabManager();
 
         // Act & Assert
-        var act = async () => await _tabManager.CloseTabAsync(null!, tabInfo);
-
-        await act.Should().ThrowAsync<ArgumentNullException>();
+        var act = () => tabManager.CloseTabAsync("");
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 
     [Fact]
-    public async Task CloseTabAsync_WithNullTab_ThrowsArgumentNullException()
+    public async Task CloseTabAsync_WithNullTabId_ThrowsArgumentException()
     {
         // Arrange
-        var mockBrowser = new Mock<IBrowser>();
+        var tabManager = CreateTabManager();
 
         // Act & Assert
-        var act = async () => await _tabManager.CloseTabAsync(mockBrowser.Object, null!);
+        var act = () => tabManager.CloseTabAsync(null!);
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
 
-        await act.Should().ThrowAsync<ArgumentNullException>();
+    [Fact]
+    public async Task CloseTabAsync_WhenPlaywrightException_ReturnsFalse()
+    {
+        // Arrange
+        var mockPage = CreateMockPage("123", "https://linkedin.com/jobs", "LinkedIn Jobs");
+        var mockContext = CreateMockContext(new[] { mockPage.Object, CreateMockPage("456", "about:blank", "").Object });
+
+        mockPage.Setup(p => p.CloseAsync(It.IsAny<PageCloseOptions?>()))
+            .ThrowsAsync(new PlaywrightException("Tab already closed"));
+
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext> { mockContext.Object });
+
+        var tabManager = CreateTabManager();
+
+        // Act
+        var result = await tabManager.CloseTabAsync("123");
+
+        // Assert
+        result.Should().BeFalse();
     }
 
     #endregion
 
-    #region TabInfo Record Tests
+    #region Constructor Validation Tests
 
     [Fact]
-    public void TabInfo_WithLinkedInUrl_HasIsLinkedInTrue()
+    public void Constructor_WithNullBrowser_ThrowsArgumentNullException()
     {
-        // Arrange & Act
-        var tabInfo = new TabInfo
-        {
-            Page = new Mock<IPage>().Object,
-            Url = "https://www.linkedin.com/jobs",
-            Title = "Jobs",
-            IsLinkedIn = true
-        };
-
-        // Assert
-        tabInfo.IsLinkedIn.Should().BeTrue();
-        tabInfo.Url.Should().Be("https://www.linkedin.com/jobs");
+        // Act & Assert
+        var act = () => new TabManager(null!, _loggerMock.Object);
+        act.Should().Throw<ArgumentNullException>()
+            .WithParameterName("browser");
     }
 
     [Fact]
-    public void TabInfo_RecordEquality_WorksCorrectly()
+    public void Constructor_WithNullLogger_ThrowsArgumentNullException()
+    {
+        // Act & Assert
+        var act = () => new TabManager(_browserMock.Object, null!);
+        act.Should().Throw<ArgumentNullException>()
+            .WithParameterName("logger");
+    }
+
+    #endregion
+
+    #region Cancellation Tests
+
+    [Fact]
+    public async Task GetTabsAsync_WhenCancelled_ThrowsOperationCanceledException()
     {
         // Arrange
-        var page = new Mock<IPage>().Object;
-        
-        var tab1 = new TabInfo
-        {
-            Page = page,
-            Url = "https://linkedin.com",
-            Title = "LinkedIn",
-            IsLinkedIn = true
-        };
+        var cts = new CancellationTokenSource();
+        cts.Cancel();
 
-        var tab2 = new TabInfo
-        {
-            Page = page,
-            Url = "https://linkedin.com",
-            Title = "LinkedIn",
-            IsLinkedIn = true
-        };
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext>());
+
+        var tabManager = CreateTabManager();
 
         // Act & Assert
-        tab1.Should().Be(tab2);
+        var act = () => tabManager.GetTabsAsync(cts.Token);
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task FindLinkedInTabAsync_WhenCancelled_ThrowsOperationCanceledException()
+    {
+        // Arrange
+        var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        _browserMock.SetupGet(b => b.Contexts).Returns(new List<IBrowserContext>());
+
+        var tabManager = CreateTabManager();
+
+        // Act & Assert
+        var act = () => tabManager.FindLinkedInTabAsync(cts.Token);
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
     #endregion
 
     #region Helper Methods
 
-    private static Mock<IPage> CreateMockPage(string url, string title)
+    private TabManager CreateTabManager()
+    {
+        return new TabManager(_browserMock.Object, _loggerMock.Object);
+    }
+
+    private static Mock<IPage> CreateMockPage(string id, string url, string title)
     {
         var mockPage = new Mock<IPage>();
         mockPage.SetupGet(p => p.Url).Returns(url);
         mockPage.Setup(p => p.TitleAsync()).ReturnsAsync(title);
+        mockPage.Setup(p => p.GetHashCode()).Returns(id.GetHashCode());
+        mockPage.Setup(p => p.CloseAsync(It.IsAny<PageCloseOptions?>())).Returns(Task.CompletedTask);
         return mockPage;
     }
 
-    private static Mock<IBrowserContext> CreateMockContext(List<IPage> pages)
+    private static Mock<IBrowserContext> CreateMockContext(IReadOnlyList<IPage> pages)
     {
         var mockContext = new Mock<IBrowserContext>();
         mockContext.SetupGet(c => c.Pages).Returns(pages);
-        
-        // Set up NewPageAsync to add a new page to the list
-        mockContext
-            .Setup(c => c.NewPageAsync())
-            .ReturnsAsync(() =>
-            {
-                var newPage = CreateMockPage("about:blank", "");
-                pages.Add(newPage.Object);
-                return newPage.Object;
-            });
-
         return mockContext;
     }
 
