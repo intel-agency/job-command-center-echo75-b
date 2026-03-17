@@ -2,15 +2,15 @@ name: orchestrator-agent
 
 on:
   issues:
-    types: [opened, edited, reopened, assigned, labeled]
+    types: [opened, edited, reopened, assigned]
   issue_comment:
-     types: [created, edited]
-  # pull_request_review_comment:
-  #     types: [created, edited]
-  # pull_request_review:
-  #   types: [submitted, edited]
+    types: [created, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
   pull_request:
-    types: [opened, synchronize, reopened, closed]  
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       prompt:
@@ -24,16 +24,11 @@ jobs:
   orchestrate:
     runs-on: ubuntu-24.04
     permissions:
-      id-token: write       # OIDC token for cloud auth (e.g. Azure)
-      contents: write       # read/write repo contents, create branches, push commits
-      pull-requests: write  # open, update, comment on, merge PRs
-      issues: write         # open, update, comment on, close issues
-      packages: read        # pull container images from GHCR
-      actions: write        # trigger workflow_dispatch, cancel runs
-      checks: write         # create/update check runs and check suites
-      statuses: write       # set commit statuses
-      repository-projects: write  # manage Projects (classic) columns/cards
-      discussions: write    # create/reply to discussions
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+      packages: read
 
     steps:
       - name: Checkout repository
@@ -103,26 +98,14 @@ jobs:
         run: npm install -g @devcontainers/cli
 
       - name: Start devcontainer
-        run: |
-          devcontainer up \
-            --workspace-folder . \
-            --config .devcontainer/devcontainer.json
+        run: bash ./scripts/devcontainer-opencode.sh up
+
+      - name: Ensure opencode server is running in devcontainer
+        run: bash ./scripts/devcontainer-opencode.sh start
 
       - name: Execute orchestrator agent in devcontainer
         env:
           ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
           KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY: ${{ secrets.KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # GH_ORCHESTRATION_AGENT_TOKEN is an org-scoped PAT stored as an org secret.
-          # Required scopes: repo, workflow, project, read:org.
-          # When absent, the built-in GITHUB_TOKEN is used but only this repo is accessible.
-          GH_ORCHESTRATION_AGENT_TOKEN: ${{ secrets.GH_ORCHESTRATION_AGENT_TOKEN }}
-        run: |
-          devcontainer exec \
-            --workspace-folder . \
-            --config .devcontainer/devcontainer.json \
-            --remote-env ZHIPU_API_KEY="$ZHIPU_API_KEY" \
-            --remote-env KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY="$KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY" \
-            --remote-env GITHUB_TOKEN="$GITHUB_TOKEN" \
-            --remote-env GH_ORCHESTRATION_AGENT_TOKEN="$GH_ORCHESTRATION_AGENT_TOKEN" \
-            -- bash ./run_opencode_prompt.sh -f "$ORCHESTRATOR_PROMPT_PATH"
+        run: bash ./scripts/devcontainer-opencode.sh prompt -f "$ORCHESTRATOR_PROMPT_PATH"
